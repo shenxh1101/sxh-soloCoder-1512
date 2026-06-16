@@ -6,7 +6,9 @@ import {
   ListOrdered,
   BarChart3,
   Settings,
-  Droplets
+  Droplets,
+  CalendarDays,
+  Wallet
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +16,7 @@ const navItems = [
   { path: '/', icon: LayoutDashboard, label: '仪表盘' },
   { path: '/queue', icon: ListOrdered, label: '排队叫号' },
   { path: '/members', icon: Users, label: '会员管理' },
+  { path: '/expense', icon: Wallet, label: '支出管理' },
   { path: '/statistics', icon: BarChart3, label: '统计报表' },
   { path: '/settings', icon: Settings, label: '系统设置' }
 ];

@@ -31,7 +31,7 @@ interface QueueState {
   getTodayWashRecords: () => WashRecord[];
   getWashRecordsByMember: (memberId: string) => WashRecord[];
   getWashRecordsByDate: (date: string) => WashRecord[];
-  getRechargeRecordsByDate: (date: string) => { id: string; memberId: string; memberName: string; amount: number; washesAdded: number; bonusWashes: number; createdAt: string }[];
+  getRechargeRecordsByDate: (date: string) => { id: string; memberId: string; memberName: string; amount: number; washesAdded: number; bonusWashes: number; createdAt: string; source?: 'recharge_page' | 'settlement' }[];
 }
 
 export const useQueueStore = create<QueueState>((set, get) => ({
@@ -88,14 +88,18 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     const waitingBeforeCount = waitingBeforeIndex.length;
 
     const position = waitingBeforeCount + 1;
+    const availableStations = stationCount - washingCount;
 
-    if (washingCount < stationCount && position === 1) {
-      return { position: 1, waitMinutes: 0, displayText: '可开始洗车' };
+    if (availableStations > 0 && position <= availableStations) {
+      return { position, waitMinutes: 0, displayText: '可开始洗车' };
     }
 
-    const availableIn = stationCount - washingCount;
-    const effectiveWaitBefore = Math.max(0, waitingBeforeCount - availableIn + 1);
-    const batches = Math.ceil((effectiveWaitBefore + 1) / stationCount);
+    let batches = 0;
+    if (availableStations > 0) {
+      batches = Math.ceil((waitingBeforeCount - availableStations + 1) / stationCount);
+    } else {
+      batches = Math.ceil((waitingBeforeCount + 1) / stationCount);
+    }
     const waitMinutes = batches * duration;
 
     let displayText = '';
@@ -216,19 +220,44 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
         case 'member_recharge_deduct':
           rechargeAmount = options?.rechargeAmount || 0;
-          if (rechargeAmount > 0) {
-            const rechargeResult = members.rechargeMember(item.memberId!, rechargeAmount);
-            if (rechargeResult.success) {
-              bonusWashesAdded = rechargeResult.bonusWashes || 0;
-              if (member) {
-                const updatedMember = useMemberStore.getState().members.find(m => m.id === item.memberId);
-                if (updatedMember && updatedMember.remainingWashes > 0) {
-                  useMemberStore.getState().deductWash(item.memberId!);
-                  washesUsed = 1;
-                }
-              }
+          if (rechargeAmount <= 0) {
+            return { success: false, message: '请输入充值金额' };
+          }
+
+          const getBonusWashesByAmount = useConfigStore.getState().getBonusWashesByAmount;
+          const bonus = getBonusWashesByAmount(rechargeAmount);
+          const rechargeRules = useConfigStore.getState().rechargeRules;
+
+          if (bonus <= 0) {
+            const minRule = rechargeRules.length > 0
+              ? Math.min(...rechargeRules.map(r => r.amount))
+              : null;
+            if (minRule) {
+              return {
+                success: false,
+                message: `充值金额未达到最低档位 ¥${minRule}，请充值至档位金额或选择其他结算方式`
+              };
+            }
+            return {
+              success: false,
+              message: '充值金额未达到赠送门槛，请调整金额或选择其他结算方式'
+            };
+          }
+
+          const rechargeResult = members.rechargeMember(item.memberId!, rechargeAmount, undefined, 'settlement');
+          if (!rechargeResult.success) {
+            return rechargeResult as { success: boolean; message: string };
+          }
+
+          bonusWashesAdded = rechargeResult.bonusWashes || 0;
+          if (member) {
+            const updatedMember = useMemberStore.getState().members.find(m => m.id === item.memberId);
+            if (updatedMember && updatedMember.remainingWashes > 0) {
+              useMemberStore.getState().deductWash(item.memberId!);
+              washesUsed = 1;
             }
           }
+
           totalAmount = rechargeAmount;
           note = `充值¥${rechargeAmount}后扣次${bonusWashesAdded ? `（赠送${bonusWashesAdded}次）` : ''}`;
           break;

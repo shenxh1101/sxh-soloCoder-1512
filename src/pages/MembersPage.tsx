@@ -20,7 +20,10 @@ import {
   Receipt,
   Banknote,
   CreditCard,
-  Wallet
+  Wallet,
+  Plus,
+  Star,
+  XCircle
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/Button';
@@ -43,7 +46,9 @@ const MembersPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [detailTab, setDetailTab] = useState<'recharge' | 'wash'>('recharge');
+  const [detailTab, setDetailTab] = useState<'recharge' | 'wash' | 'vehicles'>('recharge');
+  const [washPlateFilter, setWashPlateFilter] = useState<string>('all');
+  const [newVehiclePlate, setNewVehiclePlate] = useState<string>('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [newMember, setNewMember] = useState({ plateNumber: '', ownerName: '', phone: '' });
@@ -60,6 +65,8 @@ const MembersPage: React.FC = () => {
   const getRechargeHistory = useMemberStore(s => s.getRechargeHistory);
   const searchMembers = useMemberStore(s => s.searchMembers);
   const getLowWashMembers = useMemberStore(s => s.getLowWashMembers);
+  const addVehicle = useMemberStore(s => s.addVehicle);
+  const removeVehicle = useMemberStore(s => s.removeVehicle);
 
   const getWashRecordsByMember = useQueueStore(s => s.getWashRecordsByMember);
 
@@ -206,6 +213,8 @@ const MembersPage: React.FC = () => {
   const openDetailModal = (member: Member) => {
     setSelectedMember(member);
     setDetailTab('recharge');
+    setWashPlateFilter('all');
+    setNewVehiclePlate('');
     setIsDetailModalOpen(true);
   };
 
@@ -759,6 +768,18 @@ const MembersPage: React.FC = () => {
                   <Receipt className="w-4 h-4" />
                   消费流水
                 </button>
+                <button
+                  onClick={() => setDetailTab('vehicles')}
+                  className={cn(
+                    'flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2',
+                    detailTab === 'vehicles'
+                      ? 'bg-white shadow-sm text-sky-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  )}
+                >
+                  <Car className="w-4 h-4" />
+                  绑定车辆
+                </button>
               </div>
 
               {detailTab === 'recharge' && (
@@ -801,7 +822,137 @@ const MembersPage: React.FC = () => {
               {detailTab === 'wash' && (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {(() => {
-                    const washRecords = getWashRecordsByMember(selectedMember.id);
+                    let washRecords = getWashRecordsByMember(selectedMember.id);
+                    if (washPlateFilter !== 'all') {
+                      washRecords = washRecords.filter(r => r.plateNumber === washPlateFilter);
+                    }
+                    const plates = Array.from(new Set(getWashRecordsByMember(selectedMember.id).map(r => r.plateNumber)));
+
+                    if (plates.length > 1) {
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3 p-2 rounded-xl bg-slate-50 overflow-x-auto">
+                            <button
+                              onClick={() => setWashPlateFilter('all')}
+                              className={cn(
+                                'px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all',
+                                washPlateFilter === 'all'
+                                  ? 'bg-sky-500 text-white shadow-sm'
+                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                              )}
+                            >
+                              全部车辆
+                            </button>
+                            {plates.map(p => (
+                              <button
+                                key={p}
+                                onClick={() => setWashPlateFilter(p)}
+                                className={cn(
+                                  'px-3 py-1.5 rounded-lg text-xs font-medium tracking-wider whitespace-nowrap transition-all',
+                                  washPlateFilter === p
+                                    ? 'bg-sky-500 text-white shadow-sm'
+                                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                )}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+
+                          {washRecords.length === 0 ? (
+                            <div className="py-10 text-center">
+                              <p className="text-slate-400 text-sm">该车牌暂无消费记录</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {washRecords.map((record: WashRecord) => {
+                                let paymentIcon = <Banknote className="w-5 h-5 text-white" />;
+                                let paymentColor = 'from-sky-400 to-blue-500';
+                                let paymentLabel = '现金';
+                                let amountClass = 'text-sky-600';
+
+                                switch (record.paymentType) {
+                                  case 'member_deduct':
+                                    paymentIcon = <CreditCard className="w-5 h-5 text-white" />;
+                                    paymentColor = 'from-emerald-400 to-teal-500';
+                                    paymentLabel = '卡扣次数';
+                                    amountClass = 'text-emerald-600';
+                                    break;
+                                  case 'member_cash':
+                                    paymentIcon = <Banknote className="w-5 h-5 text-white" />;
+                                    paymentColor = 'from-sky-400 to-blue-500';
+                                    paymentLabel = '现金支付';
+                                    amountClass = 'text-sky-600';
+                                    break;
+                                  case 'member_recharge_deduct':
+                                    paymentIcon = <Wallet className="w-5 h-5 text-white" />;
+                                    paymentColor = 'from-purple-400 to-indigo-500';
+                                    paymentLabel = '充值后扣次';
+                                    amountClass = 'text-purple-600';
+                                    break;
+                                  default:
+                                    break;
+                                }
+
+                                return (
+                                  <div
+                                    key={record.id}
+                                    className="p-4 rounded-xl bg-white border border-slate-100 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-3">
+                                        <div className={cn(
+                                          'w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br',
+                                          paymentColor
+                                        )}>
+                                          {paymentIcon}
+                                        </div>
+                                        <div>
+                                          <p className="font-semibold text-slate-800 flex items-center gap-2">
+                                            {record.plateNumber}
+                                            <span className="text-xs font-normal text-slate-500">{paymentLabel}</span>
+                                          </p>
+                                          <p className="text-xs text-slate-500">
+                                            {new Date(record.createdAt).toLocaleString('zh-CN')}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <span className={cn('text-lg font-bold', amountClass)}>
+                                        {record.paymentType === 'member_deduct'
+                                          ? '扣1次'
+                                          : `¥${record.amount}`}
+                                      </span>
+                                    </div>
+                                    {record.note && (
+                                      <div className="mt-2 pt-2 border-t border-slate-100">
+                                        <div className="flex flex-wrap gap-2 text-xs">
+                                          {record.washesUsed > 0 && (
+                                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                              扣次：{record.washesUsed}次
+                                            </span>
+                                          )}
+                                          {record.bonusWashesAdded > 0 && (
+                                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                                              赠送：{record.bonusWashesAdded}次
+                                            </span>
+                                          )}
+                                          {record.rechargeAmount > 0 && (
+                                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
+                                              充值：¥{record.rechargeAmount}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
                     if (washRecords.length === 0) {
                       return (
                         <div className="py-12 text-center">
@@ -892,6 +1043,118 @@ const MembersPage: React.FC = () => {
                       );
                     });
                   })()}
+                </div>
+              )}
+
+              {detailTab === 'vehicles' && selectedMember && (
+                <div className="space-y-4 max-h-80 overflow-y-auto">
+                  <div className="flex gap-3 items-center">
+                    <input
+                      type="text"
+                      value={newVehiclePlate}
+                      onChange={(e) => setNewVehiclePlate(e.target.value.toUpperCase())}
+                      placeholder="输入车牌号码"
+                      className="flex-1 px-4 py-2.5 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all font-medium tracking-wider"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const res = addVehicle(selectedMember.id, newVehiclePlate);
+                          if (res.success) {
+                            setNewVehiclePlate('');
+                          } else {
+                            alert(res.message);
+                          }
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="primary"
+                      icon={Plus}
+                      onClick={() => {
+                        const res = addVehicle(selectedMember.id, newVehiclePlate);
+                        if (res.success) {
+                          setNewVehiclePlate('');
+                        } else {
+                          alert(res.message);
+                        }
+                      }}
+                      disabled={!newVehiclePlate}
+                    >
+                      添加
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedMember.plateNumbers.map((vehicle, idx) => {
+                      const isMain = vehicle.plateNumber === selectedMember.plateNumber;
+                      return (
+                        <div
+                          key={vehicle.id}
+                          className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+                            isMain
+                              ? 'bg-gradient-to-r from-sky-50 to-indigo-50 border-sky-200'
+                              : 'bg-white border-slate-100 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-sm ${
+                              isMain
+                                ? 'bg-gradient-to-br from-sky-400 to-blue-500'
+                                : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                            }`}>
+                              {vehicle.plateNumber.slice(-4)}
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-800 tracking-wider">{vehicle.plateNumber}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {isMain ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-medium border border-sky-200">
+                                    主车牌
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-500">
+                                    绑定时间：{new Date(vehicle.createdAt).toLocaleDateString('zh-CN')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!isMain && (
+                              <>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={Star}
+                                  onClick={() => {
+                                    updateMember(selectedMember.id, {
+                                      plateNumber: vehicle.plateNumber
+                                    });
+                                  }}
+                                >
+                                  设为主车牌
+                                </Button>
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  icon={XCircle}
+                                  onClick={() => {
+                                    const res = removeVehicle(selectedMember.id, vehicle.id);
+                                    if (!res.success) alert(res.message);
+                                  }}
+                                >
+                                  删除
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <p className="text-xs text-slate-500 text-center pt-2">
+                    该会员共绑定 {selectedMember.plateNumbers.length} 辆车，任意车辆来洗都扣同一账户次数
+                  </p>
                 </div>
               )}
             </div>

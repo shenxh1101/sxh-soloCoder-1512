@@ -1,6 +1,13 @@
-export interface Member {
+export interface MemberVehicle {
   id: string;
   plateNumber: string;
+  createdAt: string;
+}
+
+export interface Member {
+  id: string;
+  plateNumber: string; // 主车牌
+  plateNumbers: MemberVehicle[]; // 多车绑定
   ownerName: string;
   phone?: string;
   remainingWashes: number;
@@ -16,6 +23,7 @@ export interface RechargeRecord {
   washesAdded: number;
   bonusWashes: number;
   createdAt: string;
+  source?: 'recharge_page' | 'settlement';
 }
 
 export type WashPaymentType = 'member_deduct' | 'member_cash' | 'member_recharge_deduct' | 'cash';
@@ -46,6 +54,39 @@ export interface QueueItem {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  fromAppointment?: boolean;
+  appointmentId?: string;
+}
+
+export type AppointmentStatus = 'pending' | 'arrived' | 'cancelled' | 'completed';
+
+export interface Appointment {
+  id: string;
+  plateNumber: string;
+  memberId?: string;
+  ownerName?: string;
+  phone?: string;
+  appointmentDate: string;
+  appointmentTime: string;
+  status: AppointmentStatus;
+  note?: string;
+  createdAt: string;
+  queueId?: string;
+}
+
+export interface ExpenseType {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface ExpenseRecord {
+  id: string;
+  typeId: string;
+  amount: number;
+  note?: string;
+  createdAt: string;
 }
 
 export interface RechargeRule {
@@ -73,6 +114,9 @@ export interface DailyStats {
   cashIncome: number;
   memberCashIncome: number;
   memberRechargeIncome: number;
+  rechargeIncomeFromPage: number;
   totalRechargeIncome: number;
   totalIncome: number;
+  totalExpense: number;
+  netProfit: number;
 }

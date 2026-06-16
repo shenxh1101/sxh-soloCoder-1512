@@ -5,6 +5,7 @@ import QueuePage from "@/pages/QueuePage";
 import MembersPage from "@/pages/MembersPage";
 import StatisticsPage from "@/pages/StatisticsPage";
 import SettingsPage from "@/pages/SettingsPage";
+import ExpensePage from "@/pages/ExpensePage";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/queue" element={<QueuePage />} />
           <Route path="/members" element={<MembersPage />} />
+          <Route path="/expense" element={<ExpensePage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Dashboard />} />

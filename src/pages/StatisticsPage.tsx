@@ -13,18 +13,23 @@ import {
   Receipt,
   CreditCard,
   TrendingUp,
+  TrendingDown,
   FileText
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useQueueStore } from '@/store/queueStore';
 import { useConfigStore } from '@/store/configStore';
+import { useExpenseStore } from '@/store/expenseStore';
 import { formatDate } from '@/utils';
-import type { WashRecord } from '@/types';
+import type { WashRecord, ExpenseRecord } from '@/types';
 
 export default function StatisticsPage() {
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
   const getWashRecordsByDate = useQueueStore(s => s.getWashRecordsByDate);
   const getRechargeRecordsByDate = useQueueStore(s => s.getRechargeRecordsByDate);
+  const getExpenseRecordsByDate = useExpenseStore(s => s.getExpenseRecordsByDate);
+  const getExpenseTotalByDate = useExpenseStore(s => s.getExpenseTotalByDate);
+  const expenseTypes = useExpenseStore(s => s.expenseTypes);
   const config = useConfigStore(s => s.systemConfig);
 
   const todayStr = formatDate(new Date());
@@ -37,6 +42,8 @@ export default function StatisticsPage() {
 
   const washRecords = useMemo(() => getWashRecordsByDate(selectedDate), [selectedDate, getWashRecordsByDate]);
   const rechargeRecords = useMemo(() => getRechargeRecordsByDate(selectedDate), [selectedDate, getRechargeRecordsByDate]);
+  const expenseRecords = useMemo(() => getExpenseRecordsByDate(selectedDate), [selectedDate, getExpenseRecordsByDate]);
+  const totalExpense = useMemo(() => getExpenseTotalByDate(selectedDate), [selectedDate, getExpenseTotalByDate]);
 
   const stats = useMemo(() => {
     const totalWashes = washRecords.length;
@@ -57,6 +64,9 @@ export default function StatisticsPage() {
       return sum;
     }, 0);
 
+    const memberCashOnly = washRecords.filter(r => r.paymentType === 'member_cash').reduce((s, r) => s + (r.amount || 0), 0);
+    const guestCashOnly = washRecords.filter(r => r.paymentType === 'cash').reduce((s, r) => s + (r.amount || 0), 0);
+
     const rechargeIncomeFromWash = washRecords.reduce((sum, r) => {
       if (r.paymentType === 'member_recharge_deduct') {
         return sum + (r.rechargeAmount || 0);
@@ -64,12 +74,25 @@ export default function StatisticsPage() {
       return sum;
     }, 0);
 
-    const rechargeIncomeFromRecharge = rechargeRecords.reduce((sum, r) => sum + r.amount, 0);
-    const totalRechargeIncome = rechargeIncomeFromWash + rechargeIncomeFromRecharge;
+    const rechargeIncomeFromPage = rechargeRecords
+      .filter(r => r.source === 'recharge_page' || r.source === undefined)
+      .reduce((sum, r) => sum + r.amount, 0);
+    const rechargeIncomeFromSettlement = rechargeRecords
+      .filter(r => r.source === 'settlement')
+      .reduce((sum, r) => sum + r.amount, 0);
+
+    const totalRechargeIncome = rechargeIncomeFromPage + rechargeIncomeFromSettlement;
 
     const totalIncome = cashIncome + totalRechargeIncome;
     const totalBonusWashes = bonusWashesTotal + rechargeRecords.reduce((sum, r) => sum + (r.bonusWashes || 0), 0);
     const totalWashesAddedFromRecharge = washesUsedTotal - memberDeductCount + rechargeRecords.reduce((sum, r) => sum + r.washesAdded, 0);
+
+    const netProfit = totalIncome - totalExpense;
+
+    const expenseByType: Record<string, number> = {};
+    expenseRecords.forEach(r => {
+      expenseByType[r.typeId] = (expenseByType[r.typeId] || 0) + r.amount;
+    });
 
     return {
       totalWashes,
@@ -81,14 +104,20 @@ export default function StatisticsPage() {
       washesUsedTotal,
       bonusWashesTotal,
       cashIncome,
+      memberCashOnly,
+      guestCashOnly,
       rechargeIncomeFromWash,
-      rechargeIncomeFromRecharge,
+      rechargeIncomeFromPage,
+      rechargeIncomeFromSettlement,
       totalRechargeIncome,
       totalIncome,
       totalBonusWashes,
-      totalWashesAddedFromRecharge
+      totalWashesAddedFromRecharge,
+      totalExpense,
+      netProfit,
+      expenseByType
     };
-  }, [washRecords, rechargeRecords]);
+  }, [washRecords, rechargeRecords, expenseRecords, totalExpense]);
 
   const handlePrint = () => {
     window.print();
@@ -109,11 +138,23 @@ export default function StatisticsPage() {
     lines.push('');
     lines.push('【收入明细】');
     lines.push(`散客现金收入,¥${stats.cashIncome.toFixed(2)}`);
-    lines.push(`会员现金支付,¥${washRecords.filter(r => r.paymentType === 'member_cash').reduce((s, r) => s + (r.amount || 0), 0).toFixed(2)}`);
-    lines.push(`充值收入（结算时）,¥${stats.rechargeIncomeFromWash.toFixed(2)}`);
-    lines.push(`充值收入（充卡页）,¥${stats.rechargeIncomeFromRecharge.toFixed(2)}`);
+    lines.push(`会员现金支付,¥${stats.memberCashOnly.toFixed(2)}`);
+    lines.push(`充值收入（结算时）,¥${stats.rechargeIncomeFromSettlement.toFixed(2)}`);
+    lines.push(`充值收入（充卡页）,¥${stats.rechargeIncomeFromPage.toFixed(2)}`);
     lines.push(`充值收入合计,¥${stats.totalRechargeIncome.toFixed(2)}`);
     lines.push(`当日总收入,¥${stats.totalIncome.toFixed(2)}`);
+    lines.push('');
+    lines.push('【支出明细】');
+    lines.push(`总支出,¥${stats.totalExpense.toFixed(2)}`);
+    lines.push(`净利润,¥${stats.netProfit.toFixed(2)}`);
+    if (Object.keys(stats.expenseByType).length > 0) {
+      lines.push('');
+      lines.push('【支出分类汇总】');
+      Object.entries(stats.expenseByType).forEach(([typeId, amount]) => {
+        const type = expenseTypes.find(t => t.id === typeId);
+        lines.push(`${type?.name || '其他'},¥${amount.toFixed(2)}`);
+      });
+    }
     lines.push('');
     lines.push('【洗车明细】');
     lines.push('时间,车牌号,类型,支付方式,金额,扣次,赠送次数,备注');
@@ -256,13 +297,13 @@ export default function StatisticsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
             <div className="rounded-2xl p-5 bg-gradient-to-br from-sky-50 to-blue-50 border border-sky-100">
               <div className="flex items-center gap-2 mb-2 text-sky-600">
                 <Car className="w-4 h-4" />
                 <span className="text-sm font-medium">洗车总数</span>
               </div>
-              <p className="text-4xl font-bold text-slate-900">{stats.totalWashes}</p>
+              <p className="text-3xl font-bold text-slate-900">{stats.totalWashes}</p>
               <p className="text-xs text-slate-500 mt-2">辆</p>
             </div>
             <div className="rounded-2xl p-5 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
@@ -270,7 +311,7 @@ export default function StatisticsPage() {
                 <Crown className="w-4 h-4" />
                 <span className="text-sm font-medium">会员洗车</span>
               </div>
-              <p className="text-4xl font-bold text-slate-900">{stats.memberWashes}</p>
+              <p className="text-3xl font-bold text-slate-900">{stats.memberWashes}</p>
               <p className="text-xs text-slate-500 mt-2">占比 {stats.totalWashes ? Math.round(stats.memberWashes / stats.totalWashes * 100) : 0}%</p>
             </div>
             <div className="rounded-2xl p-5 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
@@ -278,16 +319,32 @@ export default function StatisticsPage() {
                 <Banknote className="w-4 h-4" />
                 <span className="text-sm font-medium">散客洗车</span>
               </div>
-              <p className="text-4xl font-bold text-slate-900">{stats.cashWashes}</p>
+              <p className="text-3xl font-bold text-slate-900">{stats.cashWashes}</p>
               <p className="text-xs text-slate-500 mt-2">占比 {stats.totalWashes ? Math.round(stats.cashWashes / stats.totalWashes * 100) : 0}%</p>
             </div>
             <div className="rounded-2xl p-5 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
               <div className="flex items-center gap-2 mb-2 text-emerald-600">
                 <TrendingUp className="w-4 h-4" />
-                <span className="text-sm font-medium">当日总收入</span>
+                <span className="text-sm font-medium">总收入</span>
               </div>
-              <p className="text-4xl font-bold text-slate-900">{formatCNY(stats.totalIncome)}</p>
+              <p className="text-3xl font-bold text-slate-900">{formatCNY(stats.totalIncome)}</p>
               <p className="text-xs text-slate-500 mt-2">现金+充值</p>
+            </div>
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-rose-50 to-red-50 border border-rose-100">
+              <div className="flex items-center gap-2 mb-2 text-rose-600">
+                <TrendingDown className="w-4 h-4" />
+                <span className="text-sm font-medium">总支出</span>
+              </div>
+              <p className="text-3xl font-bold text-slate-900">{formatCNY(stats.totalExpense)}</p>
+              <p className="text-xs text-slate-500 mt-2">成本支出</p>
+            </div>
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-100">
+              <div className="flex items-center gap-2 mb-2 text-violet-600">
+                <Wallet className="w-4 h-4" />
+                <span className="text-sm font-medium">净利润</span>
+              </div>
+              <p className={`text-3xl font-bold ${stats.netProfit >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>{formatCNY(stats.netProfit)}</p>
+              <p className="text-xs text-slate-500 mt-2">收入-支出</p>
             </div>
           </div>
 
@@ -356,19 +413,19 @@ export default function StatisticsPage() {
                   <tbody className="divide-y divide-slate-100">
                     <tr>
                       <td className="py-3 pr-4 text-slate-600">散客现金收入</td>
-                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(washRecords.filter(r => r.paymentType === 'cash').reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(stats.guestCashOnly)}</td>
                     </tr>
                     <tr>
                       <td className="py-3 pr-4 text-slate-600">会员现金支付</td>
-                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(washRecords.filter(r => r.paymentType === 'member_cash').reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(stats.memberCashOnly)}</td>
                     </tr>
                     <tr>
                       <td className="py-3 pr-4 text-slate-600">充值收入（结算时）</td>
-                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromWash)}</td>
+                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromSettlement)}</td>
                     </tr>
                     <tr>
                       <td className="py-3 pr-4 text-slate-600">充值收入（充卡页）</td>
-                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromRecharge)}</td>
+                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromPage)}</td>
                     </tr>
                     <tr className="bg-gradient-to-r from-purple-50 to-indigo-50">
                       <td className="py-4 pr-4 font-bold text-slate-800">充值收入合计</td>
@@ -388,6 +445,126 @@ export default function StatisticsPage() {
                     </span>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 bg-gradient-to-r from-rose-50 to-red-50 border-b border-rose-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-rose-600" />
+                  <h3 className="font-bold text-slate-800">支出明细</h3>
+                </div>
+                <span className="text-sm text-slate-500">共 {expenseRecords.length} 条记录</span>
+              </div>
+              <div className="p-5">
+                {expenseRecords.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                      <Wallet className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-slate-400 text-sm">当日暂无支出记录</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {expenseRecords.map((r: ExpenseRecord) => {
+                      const type = expenseTypes.find(t => t.id === r.typeId);
+                      return (
+                        <div key={r.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                          <div className="flex items-center gap-3">
+                            <div className="w-1.5 h-8 rounded-full" style={{ background: type?.color || '#94a3b8' }} />
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800">{type?.name || '其他'}</p>
+                              <p className="text-xs text-slate-500">
+                                {new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                {r.note && ` · ${r.note}`}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-rose-600">-{formatCNY(r.amount)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {Object.keys(stats.expenseByType).length > 0 && (
+                  <div className="mt-5 pt-4 border-t border-dashed border-slate-200">
+                    <p className="text-xs font-medium text-slate-500 mb-3">分类汇总</p>
+                    <div className="space-y-2">
+                      {Object.entries(stats.expenseByType).map(([typeId, amount]) => {
+                        const type = expenseTypes.find(t => t.id === typeId);
+                        return (
+                          <div key={typeId} className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full" style={{ background: type?.color || '#94a3b8' }} />
+                              {type?.name || '其他'}
+                            </span>
+                            <span className="font-semibold text-slate-800">{formatCNY(amount)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 bg-gradient-to-r from-violet-50 to-purple-50 border-b border-violet-100 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-violet-600" />
+                <h3 className="font-bold text-slate-800">经营概览</h3>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="flex items-center justify-between p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <div>
+                    <p className="text-xs text-emerald-600 font-medium">营业收入</p>
+                    <p className="text-2xl font-bold text-emerald-700">{formatCNY(stats.totalIncome)}</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-emerald-500" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-xl bg-rose-50 border border-rose-100">
+                  <div>
+                    <p className="text-xs text-rose-600 font-medium">营业支出</p>
+                    <p className="text-2xl font-bold text-rose-700">{formatCNY(stats.totalExpense)}</p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center">
+                    <TrendingDown className="w-6 h-6 text-rose-500" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200">
+                  <div>
+                    <p className="text-xs text-violet-600 font-medium">当日净利润</p>
+                    <p className={`text-2xl font-bold ${stats.netProfit >= 0 ? 'text-violet-700' : 'text-rose-700'}`}>
+                      {formatCNY(stats.netProfit)}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center">
+                    <Wallet className="w-6 h-6 text-violet-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3 mt-2">
+                  <div className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="text-xs text-slate-500">洗车均价</p>
+                    <p className="text-sm font-bold text-slate-700 mt-1">
+                      {stats.totalWashes ? formatCNY(stats.cashIncome / stats.totalWashes) : formatCNY(0)}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="text-xs text-slate-500">单均利润</p>
+                    <p className="text-sm font-bold text-slate-700 mt-1">
+                      {stats.totalWashes ? formatCNY(stats.netProfit / stats.totalWashes) : formatCNY(0)}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <p className="text-xs text-slate-500">利润率</p>
+                    <p className="text-sm font-bold text-slate-700 mt-1">
+                      {stats.totalIncome ? `${Math.round(stats.netProfit / stats.totalIncome * 100)}%` : '0%'}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -13,13 +13,16 @@ import {
   Download,
   Upload,
   RefreshCw,
-  Car
+  Car,
+  Wallet,
+  Plus
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Modal } from '@/components/Modal';
 import { useConfigStore } from '@/store/configStore';
 import { useQueueStore } from '@/store/queueStore';
 import { useMemberStore } from '@/store/memberStore';
+import { useExpenseStore } from '@/store/expenseStore';
 import { cn } from '@/lib/utils';
 import type { RechargeRule } from '@/types';
 
@@ -29,9 +32,11 @@ const SettingsPage: React.FC = () => {
   const [newRule, setNewRule] = useState({ amount: 0, bonusWashes: 0, isDefault: false });
   const [editRule, setEditRule] = useState({ amount: 0, bonusWashes: 0 });
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [, forceUpdate] = useState(0);
 
   const rechargeRules = useConfigStore(s => s.rechargeRules);
   const systemConfig = useConfigStore(s => s.systemConfig);
+  const expenseTypes = useExpenseStore(s => s.expenseTypes);
   const addRechargeRule = useConfigStore(s => s.addRechargeRule);
   const updateRechargeRule = useConfigStore(s => s.updateRechargeRule);
   const deleteRechargeRule = useConfigStore(s => s.deleteRechargeRule);
@@ -400,6 +405,57 @@ const SettingsPage: React.FC = () => {
               <span>1次</span>
               <span>20次</span>
             </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center shadow-md shadow-rose-500/25">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">支出类型管理</h2>
+                <p className="text-sm text-slate-500 mt-0.5">管理每日支出分类（水电费、耗材、人工等）</p>
+              </div>
+            </div>
+            <Button
+              variant="primary"
+              icon={Plus}
+              size="sm"
+              onClick={() => {
+                const name = prompt('请输入支出类型名称：');
+                if (name) {
+                  useExpenseStore.getState().addExpenseType(name);
+                  forceUpdate(x => x + 1);
+                }
+              }}
+            >
+              新增类型
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {expenseTypes.map((type) => (
+              <div
+                key={type.id}
+                className="group relative p-4 rounded-xl border border-slate-200 hover:border-slate-300 transition-all overflow-hidden"
+              >
+                <div className={`w-full h-2 rounded-full bg-gradient-to-r ${type.color} mb-3`} />
+                <p className="font-semibold text-slate-800">{type.name}</p>
+                <button
+                  onClick={() => {
+                    if (confirm(`确定删除「${type.name}」吗？`)) {
+                      useExpenseStore.getState().deleteExpenseType(type.id);
+                      forceUpdate(x => x + 1);
+                    }
+                  }}
+                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/80 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -14,36 +14,52 @@ import {
   Coins,
   CreditCard,
   Banknote,
-  Sparkles
+  Sparkles,
+  Calendar,
+  Phone,
+  LogIn,
+  CalendarDays,
+  MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Modal } from '@/components/Modal';
 import { useQueueStore } from '@/store/queueStore';
 import { useMemberStore } from '@/store/memberStore';
 import { useConfigStore } from '@/store/configStore';
-import type { QueueItem, Member } from '@/types';
+import { useAppointmentStore } from '@/store/appointmentStore';
+import type { QueueItem, Member, Appointment } from '@/types';
 import type { WashPaymentType, RechargeRule } from '@/types';
-import { formatTime } from '@/utils';
+import { formatTime, formatDate } from '@/utils';
 
 export default function QueuePage() {
   const [plateNumber, setPlateNumber] = useState('');
   const [showTakeModal, setShowTakeModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [completingQueue, setCompletingQueue] = useState<QueueItem | null>(null);
   const [paymentChoice, setPaymentChoice] = useState<WashPaymentType>('member_deduct');
   const [rechargeAmount, setRechargeAmount] = useState<number>(0);
   const [cashAmount, setCashAmount] = useState<number>(0);
+  const [appointmentTab, setAppointmentTab] = useState<'today' | 'pending'>('today');
   const [, forceUpdate] = useState(0);
 
   const queueStore = useQueueStore();
   const memberStore = useMemberStore();
   const config = useConfigStore(s => s.systemConfig);
   const rechargeRules = useConfigStore(s => s.rechargeRules);
+  const appointmentStore = useAppointmentStore();
 
   const [ownerName, setOwnerName] = useState('');
   const [phone, setPhone] = useState('');
   const [newMemberPlate, setNewMemberPlate] = useState('');
+
+  const [appointmentPlate, setAppointmentPlate] = useState('');
+  const [appointmentDate, setAppointmentDate] = useState(formatDate(new Date()));
+  const [appointmentTime, setAppointmentTime] = useState('09:00');
+  const [appointmentOwner, setAppointmentOwner] = useState('');
+  const [appointmentPhone, setAppointmentPhone] = useState('');
+  const [appointmentNote, setAppointmentNote] = useState('');
 
   const sortedQueue = queueStore.getSortedQueue();
   const washingQueue = queueStore.getWashingQueue();
@@ -52,6 +68,10 @@ export default function QueuePage() {
 
   const stationCount = config.washStationCount;
   const washDurationMs = config.washDurationMinutes * 60 * 1000;
+
+  const today = formatDate(new Date());
+  const todayAppointments = appointmentStore.getTodayAppointments().filter(a => a.status !== 'completed');
+  const pendingAppointments = appointmentStore.getPendingAppointments().filter(a => a.appointmentDate !== today);
 
   const findMember = (plate: string) => {
     return memberStore.findMemberByPlate(plate);
@@ -129,6 +149,50 @@ export default function QueuePage() {
       forceUpdate(x => x + 1);
     } else {
       alert(result.message);
+    }
+  };
+
+  const openAppointmentModal = () => {
+    setAppointmentPlate('');
+    setAppointmentDate(today);
+    setAppointmentTime('09:00');
+    setAppointmentOwner('');
+    setAppointmentPhone('');
+    setAppointmentNote('');
+    setShowAppointmentModal(true);
+  };
+
+  const handleAddAppointment = () => {
+    const result = appointmentStore.addAppointment({
+      plateNumber: appointmentPlate,
+      appointmentDate,
+      appointmentTime,
+      ownerName: appointmentOwner || undefined,
+      phone: appointmentPhone || undefined,
+      note: appointmentNote || undefined
+    });
+    if (result.success) {
+      setShowAppointmentModal(false);
+      forceUpdate(x => x + 1);
+    } else {
+      alert(result.message);
+    }
+  };
+
+  const handleMarkArrived = (appointmentId: string) => {
+    const result = appointmentStore.markAsArrived(appointmentId);
+    if (result.success) {
+      forceUpdate(x => x + 1);
+      alert(result.message);
+    } else {
+      alert(result.message);
+    }
+  };
+
+  const handleCancelAppointment = (appointmentId: string) => {
+    if (confirm('确定取消该预约吗？')) {
+      appointmentStore.cancelAppointment(appointmentId);
+      forceUpdate(x => x + 1);
     }
   };
 
@@ -258,17 +322,159 @@ export default function QueuePage() {
           <h1 className="text-2xl font-bold text-slate-900">排队叫号</h1>
           <p className="text-slate-500 mt-1">工位：{stationCount} 个 · 每车约 {config.washDurationMinutes} 分钟</p>
         </div>
-        <Button
-          variant="primary"
-          icon={Plus}
-          onClick={() => {
-            setPlateNumber('');
-            setShowTakeModal(true);
-          }}
-        >
-          取号
-        </Button>
+        <div className="flex gap-3">
+          <Button
+            variant="secondary"
+            icon={Calendar}
+            onClick={openAppointmentModal}
+          >
+            预约
+          </Button>
+          <Button
+            variant="primary"
+            icon={Plus}
+            onClick={() => {
+              setPlateNumber('');
+              setShowTakeModal(true);
+            }}
+          >
+            取号
+          </Button>
+        </div>
       </div>
+
+      {(todayAppointments.length > 0 || pendingAppointments.length > 0) && (
+        <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center shadow-md">
+                <CalendarDays className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">预约管理</h2>
+                <p className="text-xs text-slate-500">今日 {todayAppointments.length} 个预约 · 待预约 {pendingAppointments.length} 个</p>
+              </div>
+            </div>
+            <div className="flex gap-1 p-1 rounded-xl bg-slate-100">
+              <button
+                onClick={() => setAppointmentTab('today')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  appointmentTab === 'today'
+                    ? 'bg-white shadow-sm text-indigo-600'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                今日预约 {todayAppointments.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-xs">{todayAppointments.length}</span>}
+              </button>
+              <button
+                onClick={() => setAppointmentTab('pending')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  appointmentTab === 'pending'
+                    ? 'bg-white shadow-sm text-indigo-600'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                待预约 {pendingAppointments.length > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-xs">{pendingAppointments.length}</span>}
+              </button>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+            {(appointmentTab === 'today' ? todayAppointments : pendingAppointments).map((apt: Appointment) => {
+              const member = apt.memberId ? memberStore.members.find(m => m.id === apt.memberId) : null;
+              return (
+                <div key={apt.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-sm ${
+                      apt.status === 'pending'
+                        ? 'bg-gradient-to-br from-purple-400 to-indigo-500'
+                        : apt.status === 'arrived'
+                        ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
+                        : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                    }`}>
+                      {apt.plateNumber.slice(-4)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 tracking-wider">{apt.plateNumber}</span>
+                        {apt.status === 'pending' && (
+                          <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
+                            待到店
+                          </span>
+                        )}
+                        {apt.status === 'arrived' && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium border border-emerald-200">
+                            已到店
+                          </span>
+                        )}
+                        {apt.status === 'cancelled' && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs font-medium border border-slate-200">
+                            已取消
+                          </span>
+                        )}
+                        {member && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200">
+                            <Crown className="w-3 h-3" />
+                            VIP
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          {apt.appointmentDate} {apt.appointmentTime}
+                        </span>
+                        {(apt.ownerName || member) && (
+                          <span className="flex items-center gap-1">
+                            <UserPlus className="w-3.5 h-3.5" />
+                            {apt.ownerName || member?.ownerName}
+                          </span>
+                        )}
+                        {apt.note && (
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            {apt.note}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {apt.status === 'pending' && (
+                      <>
+                        <Button
+                          variant="success"
+                          icon={LogIn}
+                          size="sm"
+                          onClick={() => handleMarkArrived(apt.id)}
+                        >
+                          到店
+                        </Button>
+                        <Button
+                          variant="danger"
+                          icon={XCircle}
+                          size="sm"
+                          onClick={() => handleCancelAppointment(apt.id)}
+                        >
+                          取消
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {(appointmentTab === 'today' ? todayAppointments : pendingAppointments).length === 0 && (
+              <div className="py-10 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-2">
+                  <CalendarDays className="w-7 h-7 text-slate-300" />
+                </div>
+                <p className="text-slate-400">{appointmentTab === 'today' ? '今日暂无预约' : '暂无待预约'}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {washingQueue.length > 0 && (
         <div>
@@ -798,6 +1004,113 @@ export default function QueuePage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showAppointmentModal}
+        onClose={() => setShowAppointmentModal(false)}
+        title="新增预约"
+        size="lg"
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">车牌号码 *</label>
+              <input
+                type="text"
+                value={appointmentPlate}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase();
+                  setAppointmentPlate(val);
+                  const m = findMember(val);
+                  if (m) {
+                    setAppointmentOwner(m.ownerName);
+                    setAppointmentPhone(m.phone || '');
+                  }
+                }}
+                placeholder="例如：沪A12345"
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all text-lg font-medium tracking-wider"
+              />
+              {appointmentPlate && findMember(appointmentPlate) && (
+                <p className="text-sm text-amber-600 mt-2 flex items-center gap-1">
+                  <Crown className="w-3.5 h-3.5" />
+                  已识别会员：{findMember(appointmentPlate)!.ownerName}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">预约日期 *</label>
+              <input
+                type="date"
+                value={appointmentDate}
+                min={today}
+                onChange={(e) => setAppointmentDate(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">预约时段 *</label>
+              <select
+                value={appointmentTime}
+                onChange={(e) => setAppointmentTime(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+              >
+                {['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'].map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">车主姓名</label>
+              <input
+                type="text"
+                value={appointmentOwner}
+                onChange={(e) => setAppointmentOwner(e.target.value)}
+                placeholder="请输入车主姓名"
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">联系电话</label>
+              <input
+                type="tel"
+                value={appointmentPhone}
+                onChange={(e) => setAppointmentPhone(e.target.value)}
+                placeholder="请输入联系电话"
+                className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">备注</label>
+            <textarea
+              value={appointmentNote}
+              onChange={(e) => setAppointmentNote(e.target.value)}
+              placeholder="例如：SUV、车内清洁等特殊要求"
+              rows={3}
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all resize-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowAppointmentModal(false)}
+              className="flex-1"
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              icon={Calendar}
+              onClick={handleAddAppointment}
+              disabled={!appointmentPlate || !appointmentDate || !appointmentTime}
+              className="flex-1 shadow-lg shadow-sky-500/20"
+            >
+              确认预约
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
