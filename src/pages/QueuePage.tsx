@@ -1,415 +1,804 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Car,
-  PlusCircle,
-  Play,
-  CheckCircle2,
-  Crown,
-  ArrowUpCircle,
+  Search,
+  Plus,
+  UserPlus,
   Clock,
-  Timer,
-  User,
-  X,
-  Trash2
+  PlayCircle,
+  CheckCircle2,
+  XCircle,
+  Crown,
+  Car,
+  ChevronDown,
+  Wallet,
+  Coins,
+  CreditCard,
+  Banknote,
+  Sparkles
 } from 'lucide-react';
-import { Modal } from '@/components/Modal';
 import { Button } from '@/components/Button';
-import { EmptyState } from '@/components/EmptyState';
+import { Modal } from '@/components/Modal';
 import { useQueueStore } from '@/store/queueStore';
 import { useMemberStore } from '@/store/memberStore';
 import { useConfigStore } from '@/store/configStore';
-import { cn } from '@/lib/utils';
 import type { QueueItem, Member } from '@/types';
+import type { WashPaymentType, RechargeRule } from '@/types';
+import { formatTime } from '@/utils';
 
-const QueuePage: React.FC = () => {
-  const [isTakeNumberModalOpen, setIsTakeNumberModalOpen] = useState(false);
-  const [plateInput, setPlateInput] = useState('');
-  const [detectedMember, setDetectedMember] = useState<Member | undefined | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+export default function QueuePage() {
+  const [plateNumber, setPlateNumber] = useState('');
+  const [showTakeModal, setShowTakeModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completingQueue, setCompletingQueue] = useState<QueueItem | null>(null);
+  const [paymentChoice, setPaymentChoice] = useState<WashPaymentType>('member_deduct');
+  const [rechargeAmount, setRechargeAmount] = useState<number>(0);
+  const [cashAmount, setCashAmount] = useState<number>(0);
+  const [, forceUpdate] = useState(0);
 
-  const getSortedQueue = useQueueStore(s => s.getSortedQueue);
-  const getWashingQueue = useQueueStore(s => s.getWashingQueue);
-  const getWaitingQueue = useQueueStore(s => s.getWaitingQueue);
-  const getQueuePosition = useQueueStore(s => s.getQueuePosition);
-  const takeNumber = useQueueStore(s => s.takeNumber);
-  const startWash = useQueueStore(s => s.startWash);
-  const completeWash = useQueueStore(s => s.completeWash);
-  const cancelQueue = useQueueStore(s => s.cancelQueue);
-  const promoteToVip = useQueueStore(s => s.promoteToVip);
-  const clearCompleted = useQueueStore(s => s.clearCompleted);
+  const queueStore = useQueueStore();
+  const memberStore = useMemberStore();
+  const config = useConfigStore(s => s.systemConfig);
+  const rechargeRules = useConfigStore(s => s.rechargeRules);
 
-  const findMemberByPlate = useMemberStore(s => s.findMemberByPlate);
-  const washDuration = useConfigStore(s => s.systemConfig.washDurationMinutes);
-  const cashPrice = useConfigStore(s => s.systemConfig.cashPrice);
+  const [ownerName, setOwnerName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [newMemberPlate, setNewMemberPlate] = useState('');
 
-  const sortedQueue = getSortedQueue();
-  const washingQueue = getWashingQueue();
-  const waitingQueue = getWaitingQueue();
+  const sortedQueue = queueStore.getSortedQueue();
+  const washingQueue = queueStore.getWashingQueue();
+  const waitingQueue = queueStore.getWaitingQueue();
+  const canStartNew = queueStore.canStartWash();
 
-  useEffect(() => {
-    if (!plateInput) {
-      setDetectedMember(null);
-      return;
-    }
-    const member = findMemberByPlate(plateInput);
-    setDetectedMember(member || null);
-  }, [plateInput, findMemberByPlate]);
+  const stationCount = config.washStationCount;
+  const washDurationMs = config.washDurationMinutes * 60 * 1000;
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+  const findMember = (plate: string) => {
+    return memberStore.findMemberByPlate(plate);
   };
 
   const handleTakeNumber = () => {
-    const result = takeNumber(plateInput);
+    const result = queueStore.takeNumber(plateNumber);
     if (result.success) {
-      showToast(result.message, 'success');
-      setIsTakeNumberModalOpen(false);
-      setPlateInput('');
-      setDetectedMember(null);
+      setPlateNumber('');
+      setShowTakeModal(false);
+      forceUpdate(x => x + 1);
     } else {
-      showToast(result.message, 'error');
+      alert(result.message);
     }
   };
 
-  const handleStartWash = (id: string) => {
-    startWash(id);
-    showToast('开始洗车！', 'info');
-  };
-
-  const handleCompleteWash = (id: string) => {
-    const result = completeWash(id);
-    if (result.success) {
-      showToast(result.message, result.type === 'member' ? 'success' : 'info');
+  const handleAddMember = () => {
+    const res = memberStore.addMember(newMemberPlate, ownerName, phone);
+    if (res) {
+      setShowAddMemberModal(false);
+      setOwnerName('');
+      setPhone('');
+      setShowTakeModal(false);
+      setPlateNumber(newMemberPlate);
+      setTimeout(() => handleTakeNumberFromNewMember(), 100);
     } else {
-      showToast(result.message, 'error');
+      alert('该车牌已存在会员');
     }
   };
 
-  const handlePromoteToVip = (id: string) => {
-    promoteToVip(id);
-    showToast('已提升为VIP优先！', 'success');
+  const handleTakeNumberFromNewMember = () => {
+    const result = queueStore.takeNumber(newMemberPlate);
+    if (result.success) {
+      setNewMemberPlate('');
+      setPlateNumber('');
+    }
   };
 
-  const calculateWaitTime = (position: number) => {
-    const washCount = washingQueue.length;
-    const totalWait = (washCount > 0 ? washDuration : 0) + position * washDuration;
-    if (totalWait === 0) return '即将开始';
-    if (totalWait < 60) return `约 ${totalWait} 分钟`;
-    const hours = Math.floor(totalWait / 60);
-    const mins = totalWait % 60;
-    return `约 ${hours}小时${mins > 0 ? mins + '分钟' : ''}`;
+  const handleStartWash = (queueId: string) => {
+    const result = queueStore.startWash(queueId);
+    if (!result.success) {
+      alert(result.message);
+    }
+    forceUpdate(x => x + 1);
   };
 
-  const QueueCard: React.FC<{ item: QueueItem; position?: number }> = ({ item, position }) => {
-    const isWashing = item.status === 'washing';
-    const member = item.memberId ? useMemberStore.getState().members.find(m => m.id === item.memberId) : null;
+  const openCompleteModal = (item: QueueItem) => {
+    setCompletingQueue(item);
+    setCashAmount(config.cashPrice);
+    setPaymentChoice('member_deduct');
+    if (item.isVip && item.memberId) {
+      const member = memberStore.members.find(m => m.id === item.memberId);
+      if (member && member.remainingWashes <= 0) {
+        setPaymentChoice('member_cash');
+      }
+    } else {
+      setPaymentChoice('cash');
+    }
+    setRechargeAmount(0);
+    setShowCompleteModal(true);
+  };
 
-    return (
-      <div
-        className={cn(
-          'relative overflow-hidden rounded-2xl border transition-all duration-300 hover:shadow-lg',
-          isWashing
-            ? 'bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-emerald-200 shadow-md shadow-emerald-100'
-            : item.isVip
-              ? 'bg-gradient-to-br from-amber-50 via-white to-orange-50 border-amber-200'
-              : 'bg-white border-slate-200'
-        )}
-      >
-        {isWashing && (
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-500 to-emerald-400 animate-pulse" />
-        )}
-        {item.isVip && !isWashing && (
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
-        )}
+  const handleCompleteWash = () => {
+    if (!completingQueue) return;
+    const options = {
+      paymentType: paymentChoice,
+      cashAmount: cashAmount,
+      rechargeAmount: rechargeAmount,
+      bonusWashes: 0
+    };
+    const result = queueStore.completeWash(completingQueue.id, options);
+    if (result.success) {
+      setShowCompleteModal(false);
+      setCompletingQueue(null);
+      forceUpdate(x => x + 1);
+    } else {
+      alert(result.message);
+    }
+  };
 
-        <div className="p-5">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-4">
-              <div
-                className={cn(
-                  'w-14 h-14 rounded-xl flex items-center justify-center shadow-lg',
-                  isWashing
-                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/30'
-                    : item.isVip
-                      ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/30'
-                      : 'bg-gradient-to-br from-slate-500 to-slate-600 shadow-slate-500/20'
-                )}
-              >
-                {isWashing ? (
-                  <Timer className="w-7 h-7 text-white animate-pulse" />
-                ) : (
-                  <span className="text-white font-bold text-lg">#{item.queueNumber}</span>
-                )}
+  const getRemainingTime = (item: QueueItem) => {
+    if (item.status !== 'washing' || !item.startedAt) return null;
+    const elapsed = Date.now() - new Date(item.startedAt).getTime();
+    const remaining = Math.max(0, washDurationMs - elapsed);
+    return remaining;
+  };
+
+  const getRemainingTimeText = (item: QueueItem) => {
+    const remaining = getRemainingTime(item);
+    if (remaining === null) return '';
+    const mins = Math.ceil(remaining / 60000);
+    if (mins <= 0) return '即将完成';
+    return `剩余 ${mins} 分钟`;
+  };
+
+  const getProgressPercent = (item: QueueItem) => {
+    if (item.status !== 'washing' || !item.startedAt) return 0;
+    const elapsed = Date.now() - new Date(item.startedAt).getTime();
+    return Math.min(100, (elapsed / washDurationMs) * 100);
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => forceUpdate(x => x + 1), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const completingMember = completingQueue?.isVip && completingQueue.memberId
+    ? memberStore.members.find(m => m.id === completingQueue.memberId)
+    : null;
+
+  const getSelectedRuleBonus = () => {
+    if (!rechargeAmount) return 0;
+    const matchedRule = rechargeRules
+      .filter(r => r.amount <= rechargeAmount)
+      .sort((a, b) => b.amount - a.amount)[0];
+    return matchedRule?.bonusWashes || 0;
+  };
+
+  const renderStationCards = () => {
+    const stations = [];
+    for (let i = 1; i <= stationCount; i++) {
+      const washingItem = washingQueue.find(q => q.stationNumber === i);
+      stations.push(
+        <div
+          key={i}
+          className={`rounded-2xl border-2 p-5 transition-all ${
+            washingItem
+              ? 'bg-gradient-to-br from-emerald-50 to-sky-50 border-emerald-200 shadow-lg shadow-emerald-100'
+              : 'bg-slate-50 border-slate-200 border-dashed'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                washingItem ? 'bg-gradient-to-br from-emerald-400 to-sky-500 text-white shadow-md' : 'bg-slate-200 text-slate-400'
+              }`}>
+                <Car className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-2xl font-bold tracking-wider text-slate-800">
-                  {item.plateNumber}
+                <p className="font-bold text-slate-800">{i} 号工位</p>
+                <p className="text-xs text-slate-500">
+                  {washingItem ? '洗车中' : '空闲'}
                 </p>
-                <div className="flex items-center gap-2 mt-1">
-                  {item.isVip ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-xs font-semibold">
-                      <Crown className="w-3 h-3" />
-                      VIP会员
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">
-                      <User className="w-3 h-3" />
-                      散客
-                    </span>
-                  )}
-                  {member && (
-                    <span className="text-xs text-slate-500">
-                      {member.ownerName} · 剩 {member.remainingWashes} 次
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
-
-            <button
-              onClick={() => {
-                if (confirm('确定要取消此排队吗？')) {
-                  cancelQueue(item.id);
-                  showToast('已取消排队', 'info');
-                }
-              }}
-              className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {washingItem && washingItem.isVip && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white text-xs font-bold shadow-sm">
+                <Crown className="w-3 h-3" />
+                VIP
+              </span>
+            )}
           </div>
 
-          {!isWashing && position !== undefined && (
-            <div className="flex items-center gap-2 mb-4 p-3 rounded-xl bg-slate-50">
-              <Clock className="w-4 h-4 text-slate-500" />
-              <span className="text-sm text-slate-600">
-                前面还有 <span className="font-bold text-sky-600">{Math.max(0, position - 1)}</span> 辆车
-                · {calculateWaitTime(position)}
-              </span>
-            </div>
-          )}
-
-          {isWashing && (
-            <div className="flex items-center gap-2 mb-4 p-3 rounded-xl bg-emerald-100/60">
-              <Play className="w-4 h-4 text-emerald-600 fill-current" />
-              <span className="text-sm font-medium text-emerald-700">
-                正在清洗中 · 预计 {washDuration} 分钟完成
-              </span>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            {!isWashing && position === 1 && (
+          {washingItem ? (
+            <>
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-2xl font-bold text-slate-900 tracking-wider">{washingItem.plateNumber}</span>
+              </div>
+              {washingItem.isVip && completingMember && (
+                <p className="text-sm text-slate-600 mb-3">
+                  {completingMember && completingMember.ownerName} · 剩余 {completingMember.remainingWashes} 次
+                </p>
+              )}
+              <div className="w-full h-2 bg-slate-200 rounded-full mb-2 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-sky-500 transition-all duration-1000"
+                  style={{ width: `${getProgressPercent(washingItem)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatTime(washingItem.startedAt!)} 开始
+                </span>
+                <span className="text-sm font-bold text-emerald-600">{getRemainingTimeText(washingItem)}</span>
+              </div>
               <Button
                 variant="success"
-                className="flex-1"
-                onClick={() => handleStartWash(item.id)}
-                icon={Play}
-              >
-                开始洗车
-              </Button>
-            )}
-            {!isWashing && position !== undefined && position > 1 && !item.isVip && (
-              <Button
-                variant="warning"
-                className="flex-1"
-                onClick={() => handlePromoteToVip(item.id)}
-                icon={ArrowUpCircle}
-              >
-                VIP优先
-              </Button>
-            )}
-            {isWashing && (
-              <Button
-                variant="primary"
-                className="flex-1"
-                onClick={() => handleCompleteWash(item.id)}
                 icon={CheckCircle2}
+                onClick={() => openCompleteModal(washingItem)}
+                className="w-full"
               >
-                {item.isVip ? '完成(扣次)' : `完成(收¥${cashPrice})`}
+                完成结算
               </Button>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className="text-center py-6 text-slate-400">
+              <div className="w-12 h-12 rounded-full bg-slate-200/50 flex items-center justify-center mx-auto mb-2">
+                <ChevronDown className="w-6 h-6 animate-bounce" />
+              </div>
+              <p className="text-sm">等待车辆入位</p>
+            </div>
+          )}
         </div>
-      </div>
-    );
+      );
+    }
+    return stations;
   };
 
   return (
-    <div className="space-y-8">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-2xl font-medium text-sm animate-in slide-in-from-top-5 duration-300',
-            toast.type === 'success' && 'bg-emerald-500 text-white',
-            toast.type === 'error' && 'bg-rose-500 text-white',
-            toast.type === 'info' && 'bg-sky-500 text-white'
-          )}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">排队叫号</h1>
+          <p className="text-slate-500 mt-1">工位：{stationCount} 个 · 每车约 {config.washDurationMinutes} 分钟</p>
+        </div>
+        <Button
+          variant="primary"
+          icon={Plus}
+          onClick={() => {
+            setPlateNumber('');
+            setShowTakeModal(true);
+          }}
         >
-          {toast.message}
+          取号
+        </Button>
+      </div>
+
+      {washingQueue.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            洗车工位 ({washingQueue.length}/{stationCount} 使用中)
+          </h2>
+          <div className={`grid gap-4 ${stationCount === 1 ? 'grid-cols-1' : stationCount === 2 ? 'grid-cols-2' : stationCount === 3 ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'}`}>
+            {renderStationCards()}
+          </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {waitingQueue.length > 0 && (
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">排队叫号</h1>
-          <p className="text-slate-500 mt-1">
-            正在洗 <span className="font-bold text-emerald-600">{washingQueue.length}</span> 辆
-            · 排队中 <span className="font-bold text-amber-600">{waitingQueue.length}</span> 辆
-          </p>
-        </div>
-        <div className="flex gap-3">
-          {sortedQueue.filter(q => q.status === 'completed').length > 0 && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                clearCompleted();
-                showToast('已清空已完成记录', 'info');
-              }}
-              icon={Trash2}
-            >
-              清空完成
-            </Button>
-          )}
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={() => setIsTakeNumberModalOpen(true)}
-            icon={PlusCircle}
-          >
-            取号
-          </Button>
-        </div>
-      </div>
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            等待队列 ({waitingQueue.length} 辆)
+          </h2>
+          <div className="space-y-3">
+            {waitingQueue.map((item, idx) => {
+              const info = queueStore.getWaitingInfo(item.id);
+              const member = item.isVip && item.memberId
+                ? memberStore.members.find(m => m.id === item.memberId)
+                : null;
+              const isFirst = info.position === 1;
+              const canStart = isFirst && canStartNew;
+              const progressPercent = Math.round((1 - idx / waitingQueue.length) * 100);
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-        {sortedQueue.length === 0 ? (
-          <div className="lg:col-span-2 xl:col-span-3">
-            <EmptyState
-              title="暂无排队车辆"
-              description="点击右上角「取号」按钮为新客户登记排队"
-              icon={<Car className="w-16 h-16 text-slate-300" />}
-            />
+              return (
+                <div
+                  key={item.id}
+                  className={`bg-white rounded-2xl border p-4 transition-all hover:shadow-md ${
+                    canStart
+                      ? 'border-emerald-300 shadow-sm shadow-emerald-100 bg-gradient-to-r from-white to-emerald-50'
+                      : 'border-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-md shrink-0 ${
+                        item.isVip
+                          ? 'bg-gradient-to-br from-amber-400 to-orange-500 shadow-amber-200'
+                          : canStart
+                          ? 'bg-gradient-to-br from-emerald-400 to-sky-500 shadow-emerald-200'
+                          : 'bg-gradient-to-br from-slate-400 to-slate-500 shadow-slate-200'
+                      }`}>
+                        #{item.queueNumber.toString().padStart(2, '0')}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-2xl font-bold text-slate-900 tracking-wider">{item.plateNumber}</span>
+                          {item.isVip && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white text-xs font-bold shadow-sm">
+                              <Crown className="w-3 h-3" />
+                              VIP
+                            </span>
+                          )}
+                          {canStart && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-400 to-sky-500 text-white text-xs font-bold shadow-sm animate-pulse">
+                              <Sparkles className="w-3 h-3" />
+                              可开始
+                            </span>
+                          )}
+                        </div>
+
+                        {item.isVip && member && (
+                          <p className="text-sm text-slate-600 mt-1 truncate">
+                            {member.ownerName} · 剩余 <span className={member.remainingWashes <= config.lowWashThreshold ? 'text-rose-500 font-bold' : 'text-emerald-600 font-bold'}>{member.remainingWashes}</span> 次
+                          </p>
+                        )}
+
+                        <div className="flex items-center gap-3 mt-2 text-sm">
+                          {info.position > 1 && (
+                            <span className="text-slate-500">前面有 {info.position - 1} 辆车</span>
+                          )}
+                          <span className={`font-semibold ${
+                            canStart
+                              ? 'text-emerald-600'
+                              : 'text-sky-600'
+                          }`}>
+                            <Clock className="w-3.5 h-3.5 inline mr-1" />
+                            {info.displayText}
+                          </span>
+                          <span className="text-slate-400 text-xs">
+                            {formatTime(item.createdAt)} 取号
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 shrink-0 items-end">
+                      {canStart && (
+                        <Button
+                          variant="primary"
+                          icon={PlayCircle}
+                          onClick={() => handleStartWash(item.id)}
+                          className="shadow-lg shadow-sky-500/30"
+                        >
+                          开始洗车
+                        </Button>
+                      )}
+                      <div className="flex gap-2">
+                        {!item.isVip && (
+                          <Button
+                            variant="warning"
+                            icon={Crown}
+                            size="sm"
+                            onClick={() => queueStore.promoteToVip(item.id)}
+                          >
+                            VIP优先
+                          </Button>
+                        )}
+                        <Button
+                          variant="danger"
+                          icon={XCircle}
+                          size="sm"
+                          onClick={() => {
+                            if (confirm('确定取消此排队号吗？')) {
+                              queueStore.cancelQueue(item.id);
+                              forceUpdate(x => x + 1);
+                            }
+                          }}
+                        >
+                          取消
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  {waitingQueue.length > 1 && (
+                    <div className="mt-3 w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-amber-300 to-amber-500 transition-all"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ) : (
-          sortedQueue
-            .filter(q => q.status !== 'completed')
-            .map(item => (
-              <QueueCard
-                key={item.id}
-                item={item}
-                position={item.status === 'waiting' ? getQueuePosition(item.id) : undefined}
-              />
-            ))
-        )}
-      </div>
+        </div>
+      )}
+
+      {waitingQueue.length === 0 && washingQueue.length === 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center">
+          <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-slate-100 to-sky-100 flex items-center justify-center mx-auto mb-4">
+            <Car className="w-12 h-12 text-slate-400" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800">暂无车辆</h3>
+          <p className="text-slate-500 mt-2">点击右上角「取号」开始接待客户</p>
+        </div>
+      )}
 
       <Modal
-        isOpen={isTakeNumberModalOpen}
-        onClose={() => {
-          setIsTakeNumberModalOpen(false);
-          setPlateInput('');
-          setDetectedMember(null);
-        }}
-        title="取号登记"
+        isOpen={showTakeModal}
+        onClose={() => setShowTakeModal(false)}
+        title="取号排队"
         size="md"
       >
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              车牌号码
-            </label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">车牌号码</label>
             <input
               type="text"
-              value={plateInput}
-              onChange={(e) => setPlateInput(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === 'Enter' && plateInput && handleTakeNumber()}
-              placeholder="请输入车牌号，如：京A12345"
-              className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 text-lg font-bold tracking-wider text-slate-800 placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal transition-all outline-none"
+              value={plateNumber}
+              onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
+              placeholder="例如：沪A12345 或 12345"
               autoFocus
+              className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all text-lg font-medium tracking-wider"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleTakeNumber();
+              }}
             />
           </div>
 
-          {plateInput && (
-            <div
-              className={cn(
-                'p-4 rounded-xl border-2 transition-all',
-                detectedMember
-                  ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
-                  : 'bg-slate-50 border-slate-200'
-              )}
-            >
-              {detectedMember ? (
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-md shadow-amber-500/25">
-                    <Crown className="w-6 h-6 text-white" />
+          {plateNumber && (() => {
+            const m = findMember(plateNumber);
+            if (m) {
+              return (
+                <div className="rounded-xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md">
+                      <Crown className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-amber-800">会员识别成功</p>
+                      <p className="text-xs text-amber-600">自动VIP插队</p>
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-800">{detectedMember.ownerName}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-amber-200/60 text-amber-700 text-xs font-semibold">
-                        VIP会员
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-4 text-sm">
-                      <span className="text-slate-600">
-                        剩余次数：
-                        <span className={cn(
-                          'font-bold ml-1',
-                          detectedMember.remainingWashes <= 3 ? 'text-rose-600' : 'text-emerald-600'
-                        )}>
-                          {detectedMember.remainingWashes} 次
-                        </span>
-                      </span>
-                    </div>
-                    {detectedMember.phone && (
-                      <p className="text-xs text-slate-500 mt-1">📱 {detectedMember.phone}</p>
-                    )}
+                  <p className="text-sm text-amber-900">
+                    <span className="font-semibold">{m.ownerName}</span> · {m.phone}
+                  </p>
+                  <div className="flex items-center gap-4 mt-2 text-sm">
+                    <span>剩余次数：<span className={`font-bold ${m.remainingWashes <= config.lowWashThreshold ? 'text-rose-500' : 'text-emerald-600'}`}>{m.remainingWashes} 次</span></span>
+                    <span>累计洗车：{m.totalWashes} 次</span>
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-slate-300 flex items-center justify-center">
-                    <User className="w-6 h-6 text-white" />
-                  </div>
+              );
+            }
+            return (
+              <div className="rounded-xl p-4 bg-slate-50 border-2 border-dashed border-slate-300">
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-slate-700">散客</p>
-                    <p className="text-sm text-slate-500 mt-0.5">
-                      洗车费用：<span className="font-bold text-emerald-600">¥{cashPrice}</span>
-                    </p>
+                    <p className="font-semibold text-slate-700">散客（未识别到会员）</p>
+                    <p className="text-sm text-slate-500 mt-1">按现金价 ¥{config.cashPrice} 结算</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      setNewMemberPlate(plateNumber);
+                      setShowAddMemberModal(true);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-sky-500 to-blue-500 text-white text-sm font-semibold hover:shadow-md hover:shadow-sky-500/30 transition-all flex items-center gap-1"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    注册会员
+                  </button>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
 
           <div className="flex gap-3 pt-2">
-            <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={() => {
-                setIsTakeNumberModalOpen(false);
-                setPlateInput('');
-                setDetectedMember(null);
-              }}
-            >
-              取消
-            </Button>
-            <Button
-              variant="primary"
-              className="flex-1"
-              onClick={handleTakeNumber}
-              disabled={!plateInput}
-              icon={PlusCircle}
-            >
+            <Button variant="secondary" onClick={() => setShowTakeModal(false)} className="flex-1">取消</Button>
+            <Button variant="primary" onClick={handleTakeNumber} disabled={!plateNumber} className="flex-1">
               确认取号
             </Button>
           </div>
         </div>
       </Modal>
+
+      <Modal
+        isOpen={showAddMemberModal}
+        onClose={() => setShowAddMemberModal(false)}
+        title="快速注册会员"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">车牌号码</label>
+            <input
+              type="text"
+              value={newMemberPlate}
+              onChange={(e) => setNewMemberPlate(e.target.value.toUpperCase())}
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all text-lg font-medium tracking-wider"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">车主姓名</label>
+            <input
+              type="text"
+              value={ownerName}
+              onChange={(e) => setOwnerName(e.target.value)}
+              placeholder="请输入姓名"
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">联系电话</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="请输入手机号"
+              className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setShowAddMemberModal(false)} className="flex-1">取消</Button>
+            <Button variant="primary" onClick={handleAddMember} disabled={!ownerName || !phone || !newMemberPlate} className="flex-1">
+              注册并取号
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showCompleteModal}
+        onClose={() => {
+          setShowCompleteModal(false);
+          setCompletingQueue(null);
+        }}
+        title="完成结算"
+        size="lg"
+      >
+        {completingQueue && (
+          <div className="space-y-5">
+            <div className="rounded-xl p-4 bg-gradient-to-br from-slate-50 to-sky-50 border border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center text-white text-lg font-bold tracking-wider">
+                    {completingQueue.plateNumber.slice(-4)}
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-slate-900 tracking-wider">{completingQueue.plateNumber}</p>
+                    <p className="text-sm text-slate-500">
+                      {completingQueue.stationNumber && `${completingQueue.stationNumber} 号工位 · `}
+                      {completingQueue.startedAt && `${formatTime(completingQueue.startedAt)} 开始`}
+                    </p>
+                  </div>
+                </div>
+                {completingQueue.isVip && (
+                  <span className="px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white text-sm font-bold shadow-sm">
+                    <Crown className="w-3.5 h-3.5 inline mr-1" />
+                    VIP会员
+                  </span>
+                )}
+              </div>
+              {completingMember && (
+                <div className="mt-4 pt-4 border-t border-slate-200 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-700">{completingMember.ownerName} · {completingMember.phone}</p>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      当前剩余 <span className={`font-bold ${completingMember.remainingWashes <= config.lowWashThreshold ? 'text-rose-500' : 'text-emerald-600'}`}>{completingMember.remainingWashes}</span> 次洗车
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-3">选择结算方式</label>
+              <div className="space-y-3">
+                {completingQueue.isVip && (
+                  <>
+                    <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      paymentChoice === 'member_deduct'
+                        ? 'border-emerald-500 bg-emerald-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    } ${(!completingMember || completingMember.remainingWashes <= 0) ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <div className="flex items-center gap-3">
+                        <input type="radio" name="payment" value="member_deduct"
+                          checked={paymentChoice === 'member_deduct'}
+                          onChange={() => setPaymentChoice('member_deduct')}
+                          disabled={!completingMember || completingMember.remainingWashes <= 0}
+                          className="w-5 h-5 accent-emerald-500"
+                        />
+                        <div>
+                          <p className="font-bold text-slate-800 flex items-center gap-2">
+                            <CreditCard className="w-4 h-4 text-emerald-500" />
+                            卡扣次数
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {completingMember && completingMember.remainingWashes > 0
+                              ? `本次扣 1 次，剩余 ${completingMember.remainingWashes - 1} 次`
+                              : '次数不足，无法使用'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-lg font-bold text-emerald-600">扣1次</span>
+                    </label>
+
+                    <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      paymentChoice === 'member_cash'
+                        ? 'border-sky-500 bg-sky-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <input type="radio" name="payment" value="member_cash"
+                          checked={paymentChoice === 'member_cash'}
+                          onChange={() => setPaymentChoice('member_cash')}
+                          className="w-5 h-5 accent-sky-500"
+                        />
+                        <div>
+                          <p className="font-bold text-slate-800 flex items-center gap-2">
+                            <Banknote className="w-4 h-4 text-sky-500" />
+                            现金支付
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {completingMember && completingMember.remainingWashes <= 0
+                              ? '次数不足，按散客价收现金'
+                              : '会员主动选择现金支付'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500">¥</span>
+                        <input
+                          type="number"
+                          value={cashAmount}
+                          onChange={(e) => setCashAmount(Number(e.target.value))}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-24 px-3 py-2 rounded-lg border-2 border-sky-200 focus:border-sky-500 outline-none text-right text-lg font-bold text-sky-700 bg-white"
+                        />
+                      </div>
+                    </label>
+
+                    <div className={`rounded-xl border-2 p-4 transition-all ${
+                      paymentChoice === 'member_recharge_deduct'
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input type="radio" name="payment" value="member_recharge_deduct"
+                          checked={paymentChoice === 'member_recharge_deduct'}
+                          onChange={() => {
+                            setPaymentChoice('member_recharge_deduct');
+                            if (rechargeAmount === 0 && rechargeRules.length > 0) {
+                              setRechargeAmount(rechargeRules[0].amount);
+                            }
+                          }}
+                          className="w-5 h-5 accent-purple-500 mt-0.5"
+                        />
+                        <div className="flex-1">
+                          <p className="font-bold text-slate-800 flex items-center gap-2">
+                            <Wallet className="w-4 h-4 text-purple-500" />
+                            充值后扣次
+                          </p>
+                          <p className="text-sm text-slate-500">先充值，赠送次数后再扣本次费用</p>
+
+                          {paymentChoice === 'member_recharge_deduct' && (
+                            <div className="mt-4 space-y-4">
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                {rechargeRules.map((rule: RechargeRule) => (
+                                  <button
+                                    key={rule.id}
+                                    type="button"
+                                    onClick={() => setRechargeAmount(rule.amount)}
+                                    className={`rounded-xl p-3 border-2 text-left transition-all ${
+                                      rechargeAmount === rule.amount
+                                        ? 'border-purple-500 bg-white shadow-md'
+                                        : 'border-slate-200 bg-white hover:border-purple-300'
+                                    }`}
+                                  >
+                                    <p className="text-xl font-bold text-slate-900">¥{rule.amount}</p>
+                                    {rule.bonusWashes > 0 && (
+                                      <p className="text-xs text-purple-600 font-semibold mt-0.5">
+                                        赠 {rule.bonusWashes} 次
+                                      </p>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center gap-3 rounded-xl bg-white border border-purple-200 p-3">
+                                <span className="text-slate-500 font-medium">自定义：</span>
+                                <span className="text-slate-500">¥</span>
+                                <input
+                                  type="number"
+                                  value={rechargeAmount}
+                                  onChange={(e) => setRechargeAmount(Number(e.target.value))}
+                                  className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 focus:border-purple-500 outline-none text-right font-bold text-slate-800"
+                                />
+                              </div>
+
+                              {rechargeAmount > 0 && (
+                                <div className="rounded-xl bg-white border border-purple-200 p-4">
+                                  <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1">
+                                    <Sparkles className="w-4 h-4 text-purple-500" />
+                                    充值结算明细
+                                  </p>
+                                  <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-600">充值金额</span>
+                                      <span className="font-bold text-slate-800">¥{rechargeAmount}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-600">赠送洗车次数</span>
+                                      <span className="font-bold text-purple-600">+ {getSelectedRuleBonus()} 次</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-600">本次扣次</span>
+                                      <span className="font-bold text-rose-500">- 1 次</span>
+                                    </div>
+                                    <div className="border-t border-purple-100 my-2" />
+                                    <div className="flex justify-between">
+                                      <span className="font-semibold text-slate-700">应收金额</span>
+                                      <span className="font-bold text-purple-600 text-lg">¥{rechargeAmount}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                  </>
+                )}
+
+                {!completingQueue.isVip && (
+                  <div className="flex items-center justify-between p-4 rounded-xl border-2 border-sky-500 bg-sky-50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-sky-500 flex items-center justify-center text-white">
+                        <Banknote className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800">散客现金支付</p>
+                        <p className="text-sm text-slate-500">无会员记录，按散客价结算</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">¥</span>
+                      <input
+                        type="number"
+                        value={cashAmount}
+                        onChange={(e) => setCashAmount(Number(e.target.value))}
+                        className="w-28 px-3 py-2 rounded-lg border-2 border-sky-200 focus:border-sky-500 outline-none text-right text-lg font-bold text-sky-700 bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowCompleteModal(false);
+                  setCompletingQueue(null);
+                }}
+                className="flex-1"
+              >
+                取消
+              </Button>
+              <Button
+                variant="success"
+                icon={CheckCircle2}
+                onClick={handleCompleteWash}
+                disabled={paymentChoice === 'member_recharge_deduct' && (!rechargeAmount || rechargeAmount <= 0)}
+                className="flex-1 shadow-lg shadow-emerald-500/20"
+              >
+                确认完成
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
-};
-
-export default QueuePage;
+}

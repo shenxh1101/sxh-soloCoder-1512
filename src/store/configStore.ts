@@ -22,7 +22,8 @@ const defaultRechargeRules: RechargeRule[] = [
 const defaultSystemConfig: SystemConfig = {
   lowWashThreshold: 3,
   washDurationMinutes: 15,
-  cashPrice: 30
+  cashPrice: 30,
+  washStationCount: 1
 };
 
 export const useConfigStore = create<ConfigState>((set, get) => ({

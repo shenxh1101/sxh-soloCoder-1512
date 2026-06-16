@@ -1,539 +1,543 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
+  CalendarDays,
   Car,
-  Users,
-  CircleDollarSign,
   Crown,
-  TrendingUp,
-  Calendar,
+  Banknote,
+  Wallet,
+  Sparkles,
+  Printer,
   Download,
-  AlertTriangle,
-  Activity,
-  PieChart
+  ChevronLeft,
+  ChevronRight,
+  Receipt,
+  CreditCard,
+  TrendingUp,
+  FileText
 } from 'lucide-react';
-import { StatCard } from '@/components/StatCard';
-import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { useQueueStore } from '@/store/queueStore';
-import { useMemberStore } from '@/store/memberStore';
 import { useConfigStore } from '@/store/configStore';
-import { cn } from '@/lib/utils';
 import { formatDate } from '@/utils';
-import type { DailyStats, WashRecord, Member } from '@/types';
+import type { WashRecord } from '@/types';
 
-const StatisticsPage: React.FC = () => {
-  const [dateRange, setDateRange] = useState<7 | 14 | 30>(7);
-  const washRecords = useQueueStore(s => s.washRecords);
-  const members = useMemberStore(s => s.members);
-  const getRechargeHistory = useMemberStore(s => s.getRechargeHistory);
-  const getLowWashMembers = useMemberStore(s => s.getLowWashMembers);
-  const systemConfig = useConfigStore(s => s.systemConfig);
+export default function StatisticsPage() {
+  const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
+  const getWashRecordsByDate = useQueueStore(s => s.getWashRecordsByDate);
+  const getRechargeRecordsByDate = useQueueStore(s => s.getRechargeRecordsByDate);
+  const config = useConfigStore(s => s.systemConfig);
 
-  const lowWashMembers = getLowWashMembers();
-  const threshold = systemConfig.lowWashThreshold;
+  const todayStr = formatDate(new Date());
 
-  const statsData = useMemo(() => {
-    const dailyStatsMap = new Map<string, DailyStats>();
+  const changeDate = (days: number) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(formatDate(d));
+  };
 
-    const now = new Date();
-    for (let i = dateRange - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateStr = formatDate(date);
-      dailyStatsMap.set(dateStr, {
-        date: dateStr,
-        totalWashes: 0,
-        memberWashes: 0,
-        cashWashes: 0,
-        cashIncome: 0,
-        memberRecharge: 0
-      });
-    }
+  const washRecords = useMemo(() => getWashRecordsByDate(selectedDate), [selectedDate, getWashRecordsByDate]);
+  const rechargeRecords = useMemo(() => getRechargeRecordsByDate(selectedDate), [selectedDate, getRechargeRecordsByDate]);
 
-    washRecords
-      .filter(r => r.status === 'completed')
-      .forEach(record => {
-        const date = formatDate(new Date(record.createdAt));
-        if (dailyStatsMap.has(date)) {
-          const stats = dailyStatsMap.get(date)!;
-          stats.totalWashes++;
-          if (record.type === 'member') {
-            stats.memberWashes++;
-          } else {
-            stats.cashWashes++;
-            stats.cashIncome += record.amount;
-          }
-        }
-      });
+  const stats = useMemo(() => {
+    const totalWashes = washRecords.length;
+    const memberWashes = washRecords.filter(r => r.type === 'member').length;
+    const cashWashes = washRecords.filter(r => r.type === 'cash').length;
 
-    members.forEach(member => {
-      const history = getRechargeHistory(member.id);
-      history.forEach(r => {
-        const date = formatDate(new Date(r.createdAt));
-        if (dailyStatsMap.has(date)) {
-          dailyStatsMap.get(date)!.memberRecharge += r.amount;
-        }
-      });
-    });
+    const memberDeductCount = washRecords.filter(r => r.paymentType === 'member_deduct').length;
+    const memberCashCount = washRecords.filter(r => r.paymentType === 'member_cash').length;
+    const memberRechargeCount = washRecords.filter(r => r.paymentType === 'member_recharge_deduct').length;
 
-    return Array.from(dailyStatsMap.values()).reverse();
-  }, [washRecords, members, dateRange, getRechargeHistory]);
+    const washesUsedTotal = washRecords.reduce((sum, r) => sum + (r.washesUsed || 0), 0);
+    const bonusWashesTotal = washRecords.reduce((sum, r) => sum + (r.bonusWashesAdded || 0), 0);
 
-  const totalStats = useMemo(() => {
-    const totalWashes = statsData.reduce((s, d) => s + d.totalWashes, 0);
-    const memberWashes = statsData.reduce((s, d) => s + d.memberWashes, 0);
-    const cashWashes = statsData.reduce((s, d) => s + d.cashWashes, 0);
-    const cashIncome = statsData.reduce((s, d) => s + d.cashIncome, 0);
-    const memberRecharge = statsData.reduce((s, d) => s + d.memberRecharge, 0);
-    return { totalWashes, memberWashes, cashWashes, cashIncome, memberRecharge };
-  }, [statsData]);
+    const cashIncome = washRecords.reduce((sum, r) => {
+      if (r.paymentType === 'cash' || r.paymentType === 'member_cash') {
+        return sum + (r.amount || 0);
+      }
+      return sum;
+    }, 0);
 
-  const maxWashes = Math.max(...statsData.map(d => d.totalWashes), 1);
+    const rechargeIncomeFromWash = washRecords.reduce((sum, r) => {
+      if (r.paymentType === 'member_recharge_deduct') {
+        return sum + (r.rechargeAmount || 0);
+      }
+      return sum;
+    }, 0);
 
-  const memberRankings = useMemo(() => {
-    return [...members]
-      .sort((a, b) => b.totalWashes - a.totalWashes)
-      .slice(0, 8);
-  }, [members]);
+    const rechargeIncomeFromRecharge = rechargeRecords.reduce((sum, r) => sum + r.amount, 0);
+    const totalRechargeIncome = rechargeIncomeFromWash + rechargeIncomeFromRecharge;
 
-  const exportData = () => {
+    const totalIncome = cashIncome + totalRechargeIncome;
+    const totalBonusWashes = bonusWashesTotal + rechargeRecords.reduce((sum, r) => sum + (r.bonusWashes || 0), 0);
+    const totalWashesAddedFromRecharge = washesUsedTotal - memberDeductCount + rechargeRecords.reduce((sum, r) => sum + r.washesAdded, 0);
+
+    return {
+      totalWashes,
+      memberWashes,
+      cashWashes,
+      memberDeductCount,
+      memberCashCount,
+      memberRechargeCount,
+      washesUsedTotal,
+      bonusWashesTotal,
+      cashIncome,
+      rechargeIncomeFromWash,
+      rechargeIncomeFromRecharge,
+      totalRechargeIncome,
+      totalIncome,
+      totalBonusWashes,
+      totalWashesAddedFromRecharge
+    };
+  }, [washRecords, rechargeRecords]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExportCSV = () => {
     const lines: string[] = [];
-    lines.push('日期,总洗车数,会员洗车,散客洗车,现金收入,会员充值');
-    statsData.forEach(d => {
-      lines.push(`${d.date},${d.totalWashes},${d.memberWashes},${d.cashWashes},${d.cashIncome},${d.memberRecharge}`);
+    lines.push(`洗车店打烊结算单 - ${selectedDate}`);
+    lines.push('');
+    lines.push('【汇总统计】');
+    lines.push(`洗车总数,${stats.totalWashes}`);
+    lines.push(`会员洗车,${stats.memberWashes}`);
+    lines.push(`散客洗车,${stats.cashWashes}`);
+    lines.push(`会员卡扣次数,${stats.memberDeductCount}`);
+    lines.push(`会员现金支付,${stats.memberCashCount}`);
+    lines.push(`会员充值后扣次,${stats.memberRechargeCount}`);
+    lines.push(`赠送洗车次数,${stats.totalBonusWashes}`);
+    lines.push('');
+    lines.push('【收入明细】');
+    lines.push(`散客现金收入,¥${stats.cashIncome.toFixed(2)}`);
+    lines.push(`会员现金支付,¥${washRecords.filter(r => r.paymentType === 'member_cash').reduce((s, r) => s + (r.amount || 0), 0).toFixed(2)}`);
+    lines.push(`充值收入（结算时）,¥${stats.rechargeIncomeFromWash.toFixed(2)}`);
+    lines.push(`充值收入（充卡页）,¥${stats.rechargeIncomeFromRecharge.toFixed(2)}`);
+    lines.push(`充值收入合计,¥${stats.totalRechargeIncome.toFixed(2)}`);
+    lines.push(`当日总收入,¥${stats.totalIncome.toFixed(2)}`);
+    lines.push('');
+    lines.push('【洗车明细】');
+    lines.push('时间,车牌号,类型,支付方式,金额,扣次,赠送次数,备注');
+    washRecords.forEach(r => {
+      const time = new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      const typeLabel = r.type === 'member' ? '会员' : '散客';
+      const payLabel: Record<string, string> = {
+        member_deduct: '卡扣次数',
+        member_cash: '现金支付',
+        member_recharge_deduct: '充值后扣次',
+        cash: '现金支付'
+      };
+      lines.push(`${time},${r.plateNumber},${typeLabel},${payLabel[r.paymentType] || r.paymentType},¥${r.amount},${r.washesUsed || 0},${r.bonusWashesAdded || 0},${r.note || ''}`);
     });
     lines.push('');
-    lines.push('汇总,,,,,');
-    lines.push(`,${totalStats.totalWashes},${totalStats.memberWashes},${totalStats.cashWashes},${totalStats.cashIncome},${totalStats.memberRecharge}`);
+    lines.push('【充值明细】');
+    lines.push('时间,会员,充值金额,到账次数,赠送次数');
+    rechargeRecords.forEach(r => {
+      const time = new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      lines.push(`${time},${r.memberName},¥${r.amount},${r.washesAdded},${r.bonusWashes}`);
+    });
+    lines.push('');
+    lines.push(`导出时间：${new Date().toLocaleString('zh-CN')}`);
 
-    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const csv = '\uFEFF' + lines.map(line => line).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `洗车店统计_${formatDate(new Date())}.csv`;
+    link.download = `打烊结算单_${selectedDate}.csv`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  const hasData = washRecords.length > 0 || members.length > 0;
+  const formatCNY = (v: number) => `¥${v.toFixed(2)}`;
+
+  const dateLabel = (() => {
+    if (selectedDate === todayStr) return '今天';
+    const y = new Date(selectedDate);
+    const t = new Date(todayStr);
+    const diff = Math.round((t.getTime() - y.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff === 1) return '昨天';
+    if (diff === 2) return '前天';
+    return y.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+  })();
+
+  const isToday = selectedDate === todayStr;
+
+  const getPaymentBadge = (r: WashRecord) => {
+    switch (r.paymentType) {
+      case 'member_deduct':
+        return { label: '卡扣', icon: <CreditCard className="w-3 h-3" />, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+      case 'member_cash':
+        return { label: '现金', icon: <Banknote className="w-3 h-3" />, color: 'bg-sky-100 text-sky-700 border-sky-200' };
+      case 'member_recharge_deduct':
+        return { label: '充值', icon: <Wallet className="w-3 h-3" />, color: 'bg-purple-100 text-purple-700 border-purple-200' };
+      default:
+        return { label: '现金', icon: <Banknote className="w-3 h-3" />, color: 'bg-slate-100 text-slate-700 border-slate-200' };
+    }
+  };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">统计报表</h1>
-          <p className="text-slate-500 mt-1">
-            查看洗车量、收入和会员消费趋势
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">打烊结算单</h1>
+          <p className="text-slate-500 mt-1">按日期查看每日营业数据</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex p-1 bg-slate-100 rounded-xl">
-            {([7, 14, 30] as const).map(days => (
-              <button
-                key={days}
-                onClick={() => setDateRange(days)}
-                className={cn(
-                  'px-4 py-2 rounded-lg font-medium text-sm transition-all',
-                  dateRange === days
-                    ? 'bg-white text-sky-600 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                近{days}天
-              </button>
-            ))}
-          </div>
-          <Button variant="secondary" icon={Download} onClick={exportData}>
+          <Button
+            variant="secondary"
+            icon={Download}
+            onClick={handleExportCSV}
+          >
             导出CSV
+          </Button>
+          <Button
+            variant="primary"
+            icon={Printer}
+            onClick={handlePrint}
+            className="shadow-lg shadow-sky-500/20"
+          >
+            打印结算单
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5">
-        <StatCard
-          title="总洗车数"
-          value={totalStats.totalWashes}
-          subtitle="辆"
-          icon={Car}
-          color="sky"
-        />
-        <StatCard
-          title="会员洗车"
-          value={totalStats.memberWashes}
-          subtitle="辆"
-          icon={Crown}
-          color="amber"
-        />
-        <StatCard
-          title="散客洗车"
-          value={totalStats.cashWashes}
-          subtitle="辆"
-          icon={Users}
-          color="violet"
-        />
-        <StatCard
-          title="现金收入"
-          value={`¥${totalStats.cashIncome}`}
-          icon={CircleDollarSign}
-          color="emerald"
-        />
-        <StatCard
-          title="会员充值"
-          value={`¥${totalStats.memberRecharge}`}
-          icon={TrendingUp}
-          color="rose"
+      <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-100 p-4">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={ChevronLeft}
+            onClick={() => changeDate(-1)}
+          />
+          <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-100">
+            <CalendarDays className="w-5 h-5 text-sky-600" />
+            <div>
+              <p className="font-bold text-slate-800">{selectedDate}</p>
+              <p className="text-xs text-sky-600 font-medium">{dateLabel}{isToday && ' · 实时数据'}</p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={ChevronRight}
+            onClick={() => changeDate(1)}
+            disabled={isToday}
+          />
+        </div>
+        <input
+          type="date"
+          value={selectedDate}
+          max={todayStr}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="px-4 py-2 rounded-xl border-2 border-slate-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 outline-none transition-all text-sm font-medium"
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
-                <Activity className="w-5 h-5 text-sky-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">洗车趋势</h2>
-                <p className="text-sm text-slate-500 mt-0.5">每日洗车数量变化</p>
+      <div id="print-area" className="space-y-6">
+        <div className="bg-white rounded-2xl border border-slate-100 p-8 print:border-none print:p-4 print:shadow-none">
+          <div className="text-center mb-8 pb-6 border-b border-dashed border-slate-200">
+            <div className="inline-flex items-center gap-2 mb-2">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/25">
+                <Car className="w-6 h-6 text-white" />
               </div>
             </div>
-            <div className="flex items-center gap-4 text-sm">
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-sky-500" />
-                <span className="text-slate-600">总洗车</span>
+            <h1 className="text-3xl font-bold text-slate-900 tracking-wide">洗车店 · 打烊结算单</h1>
+            <div className="mt-3 flex items-center justify-center gap-6 text-sm text-slate-600">
+              <span className="flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4" />
+                营业日期：<span className="font-semibold text-slate-800">{selectedDate}</span>
               </span>
-              <span className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-amber-500" />
-                <span className="text-slate-600">会员</span>
+              <span className="flex items-center gap-1.5">
+                <FileText className="w-4 h-4" />
+                打印时间：<span className="font-semibold text-slate-800">{new Date().toLocaleString('zh-CN')}</span>
               </span>
             </div>
           </div>
 
-          {!hasData ? (
-            <EmptyState
-              title="暂无数据"
-              description="开始营业后将显示统计图表"
-            />
-          ) : (
-            <div className="h-72 flex items-end gap-2">
-              {statsData.map(day => (
-                <div
-                  key={day.date}
-                  className="flex-1 flex flex-col items-center gap-2 group"
-                >
-                  <div className="w-full h-full flex flex-col justify-end gap-0.5">
-                    {day.memberWashes > 0 && (
-                      <div
-                        className="w-full bg-gradient-to-t from-amber-500 to-amber-400 rounded-t-md transition-all duration-500 hover:from-amber-600 hover:to-amber-500 group-hover:shadow-md"
-                        style={{ height: `${(day.memberWashes / maxWashes) * 100}%` }}
-                        title={`会员: ${day.memberWashes}辆`}
-                      />
-                    )}
-                    {day.cashWashes > 0 && (
-                      <div
-                        className="w-full bg-gradient-to-t from-sky-500 to-sky-400 rounded-b-md transition-all duration-500 hover:from-sky-600 hover:to-sky-500 group-hover:shadow-md"
-                        style={{
-                          height: `${(day.cashWashes / maxWashes) * 100}%`,
-                          borderTopLeftRadius: day.memberWashes === 0 ? '0.375rem' : '0',
-                          borderTopRightRadius: day.memberWashes === 0 ? '0.375rem' : '0'
-                        }}
-                        title={`散客: ${day.cashWashes}辆`}
-                      />
-                    )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-sky-50 to-blue-50 border border-sky-100">
+              <div className="flex items-center gap-2 mb-2 text-sky-600">
+                <Car className="w-4 h-4" />
+                <span className="text-sm font-medium">洗车总数</span>
+              </div>
+              <p className="text-4xl font-bold text-slate-900">{stats.totalWashes}</p>
+              <p className="text-xs text-slate-500 mt-2">辆</p>
+            </div>
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
+              <div className="flex items-center gap-2 mb-2 text-amber-600">
+                <Crown className="w-4 h-4" />
+                <span className="text-sm font-medium">会员洗车</span>
+              </div>
+              <p className="text-4xl font-bold text-slate-900">{stats.memberWashes}</p>
+              <p className="text-xs text-slate-500 mt-2">占比 {stats.totalWashes ? Math.round(stats.memberWashes / stats.totalWashes * 100) : 0}%</p>
+            </div>
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+              <div className="flex items-center gap-2 mb-2 text-slate-600">
+                <Banknote className="w-4 h-4" />
+                <span className="text-sm font-medium">散客洗车</span>
+              </div>
+              <p className="text-4xl font-bold text-slate-900">{stats.cashWashes}</p>
+              <p className="text-xs text-slate-500 mt-2">占比 {stats.totalWashes ? Math.round(stats.cashWashes / stats.totalWashes * 100) : 0}%</p>
+            </div>
+            <div className="rounded-2xl p-5 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
+              <div className="flex items-center gap-2 mb-2 text-emerald-600">
+                <TrendingUp className="w-4 h-4" />
+                <span className="text-sm font-medium">当日总收入</span>
+              </div>
+              <p className="text-4xl font-bold text-slate-900">{formatCNY(stats.totalIncome)}</p>
+              <p className="text-xs text-slate-500 mt-2">现金+充值</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-slate-600" />
+                <h3 className="font-bold text-slate-800">结算方式分布</h3>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-emerald-500" />
+                      会员卡扣次数
+                    </span>
+                    <span className="text-sm font-bold text-slate-800">{stats.memberDeductCount} 次 <span className="font-normal text-slate-400">({formatCNY(0)})</span></span>
                   </div>
-                  <span className="text-xs text-slate-500 group-hover:text-slate-700 font-medium">
-                    {day.date.slice(5).replace('-', '/')}
-                  </span>
-                  <span className="text-xs font-bold text-slate-700">
-                    {day.totalWashes > 0 ? day.totalWashes : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <PieChart className="w-5 h-5 text-emerald-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">收入构成</h2>
-              <p className="text-sm text-slate-500 mt-0.5">现金 vs 充值</p>
-            </div>
-          </div>
-
-          {!hasData ? (
-            <EmptyState title="暂无数据" />
-          ) : (
-            <div className="space-y-6">
-              <div className="relative pt-4">
-                <div className="h-4 w-full rounded-full bg-slate-100 overflow-hidden flex">
-                  {totalStats.cashIncome > 0 && (
+                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
-                      style={{
-                        width: `${(totalStats.cashIncome / (totalStats.cashIncome + totalStats.memberRecharge || 1)) * 100}%`
-                      }}
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500"
+                      style={{ width: `${stats.totalWashes ? (stats.memberDeductCount / stats.totalWashes) * 100 : 0}%` }}
                     />
-                  )}
-                  {totalStats.memberRecharge > 0 && (
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                      <Banknote className="w-3.5 h-3.5 text-sky-500" />
+                      散客现金 + 会员现金
+                    </span>
+                    <span className="text-sm font-bold text-slate-800">{stats.cashWashes + stats.memberCashCount} 次 <span className="font-normal text-slate-400">({formatCNY(stats.cashIncome)})</span></span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-violet-500 to-purple-500 transition-all duration-500"
-                      style={{
-                        width: `${(totalStats.memberRecharge / (totalStats.cashIncome + totalStats.memberRecharge || 1)) * 100}%`
-                      }}
+                      className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500"
+                      style={{ width: `${stats.totalWashes ? ((stats.cashWashes + stats.memberCashCount) / stats.totalWashes) * 100 : 0}%` }}
                     />
-                  )}
-                </div>
-                <div className="flex justify-between mt-4 text-sm">
-                  <div>
-                    <p className="text-slate-500">现金收入</p>
-                    <p className="text-lg font-bold text-emerald-600">¥{totalStats.cashIncome}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-slate-500">会员充值</p>
-                    <p className="text-lg font-bold text-violet-600">¥{totalStats.memberRecharge}</p>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5 text-purple-500" />
+                      充值后扣次
+                    </span>
+                    <span className="text-sm font-bold text-slate-800">{stats.memberRechargeCount} 次 <span className="font-normal text-slate-400">({formatCNY(stats.rechargeIncomeFromWash)})</span></span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-purple-400 to-indigo-500"
+                      style={{ width: `${stats.totalWashes ? (stats.memberRechargeCount / stats.totalWashes) * 100 : 0}%` }}
+                    />
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-3 pt-4 border-t border-slate-100">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">会员占比</span>
-                  <span className="font-semibold text-amber-600">
-                    {totalStats.totalWashes > 0
-                      ? Math.round((totalStats.memberWashes / totalStats.totalWashes) * 100)
-                      : 0}%
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">散客占比</span>
-                  <span className="font-semibold text-sky-600">
-                    {totalStats.totalWashes > 0
-                      ? Math.round((totalStats.cashWashes / totalStats.totalWashes) * 100)
-                      : 0}%
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">日均洗车</span>
-                  <span className="font-semibold text-slate-800">
-                    {Math.round(totalStats.totalWashes / statsData.length)} 辆
-                  </span>
-                </div>
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100 flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-purple-600" />
+                <h3 className="font-bold text-slate-800">收入明细</h3>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-              <Crown className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">会员活跃度排行</h2>
-              <p className="text-sm text-slate-500 mt-0.5">累计洗车次数Top 8</p>
+              <div className="p-5">
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    <tr>
+                      <td className="py-3 pr-4 text-slate-600">散客现金收入</td>
+                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(washRecords.filter(r => r.paymentType === 'cash').reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 pr-4 text-slate-600">会员现金支付</td>
+                      <td className="py-3 text-right font-semibold text-slate-800">{formatCNY(washRecords.filter(r => r.paymentType === 'member_cash').reduce((s, r) => s + (r.amount || 0), 0))}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 pr-4 text-slate-600">充值收入（结算时）</td>
+                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromWash)}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 pr-4 text-slate-600">充值收入（充卡页）</td>
+                      <td className="py-3 text-right font-semibold text-purple-600">{formatCNY(stats.rechargeIncomeFromRecharge)}</td>
+                    </tr>
+                    <tr className="bg-gradient-to-r from-purple-50 to-indigo-50">
+                      <td className="py-4 pr-4 font-bold text-slate-800">充值收入合计</td>
+                      <td className="py-4 text-right font-bold text-purple-700 text-lg">{formatCNY(stats.totalRechargeIncome)}</td>
+                    </tr>
+                    <tr className="bg-gradient-to-r from-emerald-50 to-teal-50">
+                      <td className="py-4 pr-4 font-bold text-slate-800">当日总收入</td>
+                      <td className="py-4 text-right font-bold text-emerald-700 text-2xl">{formatCNY(stats.totalIncome)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {stats.totalBonusWashes > 0 && (
+                  <div className="mt-4 flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <Sparkles className="w-4 h-4 text-amber-600" />
+                    <span className="text-sm text-amber-800">
+                      当日赠送 <span className="font-bold">{stats.totalBonusWashes}</span> 次洗车服务
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {memberRankings.length === 0 ? (
-            <EmptyState
-              title="暂无会员数据"
-              description="添加会员并开始服务后显示排行"
-            />
-          ) : (
-            <div className="space-y-2">
-              {memberRankings.map((member, idx) => (
-                <MemberRankingItem key={member.id} member={member} rank={idx + 1} />
-              ))}
+          <div className="rounded-2xl border border-slate-200 overflow-hidden mb-6">
+            <div className="px-5 py-4 bg-gradient-to-r from-sky-50 to-blue-50 border-b border-sky-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-sky-600" />
+                <h3 className="font-bold text-slate-800">洗车流水明细</h3>
+              </div>
+              <span className="text-sm text-slate-500">共 {washRecords.length} 条记录</span>
             </div>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-rose-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">次数预警名单</h2>
-              <p className="text-sm text-slate-500 mt-0.5">
-                剩余次数 ≤ {threshold} 次的会员
-              </p>
-            </div>
-            {lowWashMembers.length > 0 && (
-              <span className="ml-auto px-3 py-1 rounded-full bg-rose-100 text-rose-600 text-sm font-semibold">
-                {lowWashMembers.length} 人
-              </span>
+            {washRecords.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                  <Car className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-slate-400">当日暂无洗车记录</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">时间</th>
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">车牌号</th>
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">客户类型</th>
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">支付方式</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">金额</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">扣次</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">赠送</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {washRecords.map((r) => {
+                      const badge = getPaymentBadge(r);
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50/50">
+                          <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
+                            {new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="font-bold tracking-wider text-slate-900">{r.plateNumber}</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {r.type === 'member' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium">
+                                <Crown className="w-3 h-3" />
+                                会员
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 border border-slate-200 text-xs font-medium">
+                                散客
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium ${badge.color}`}>
+                              {badge.icon}
+                              {badge.label}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-semibold text-slate-800">
+                            {r.amount > 0 ? formatCNY(r.amount) : '—'}
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <span className={r.washesUsed > 0 ? 'font-semibold text-emerald-600' : 'text-slate-300'}>
+                              {r.washesUsed > 0 ? `-${r.washesUsed}` : '—'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <span className={r.bonusWashesAdded > 0 ? 'font-semibold text-amber-600' : 'text-slate-300'}>
+                              {r.bonusWashesAdded > 0 ? `+${r.bonusWashesAdded}` : '—'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
-          {lowWashMembers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
-                <Crown className="w-8 h-8 text-emerald-500" />
-              </div>
-              <h3 className="font-semibold text-slate-700">会员状态良好</h3>
-              <p className="text-sm text-slate-500 mt-1">暂无需要提醒的会员</p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {lowWashMembers.map(member => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-3 rounded-xl bg-amber-50/50 border border-amber-100 hover:bg-amber-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center text-white font-bold">
-                      {member.ownerName.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-800 text-sm">{member.ownerName}</p>
-                      <p className="text-xs text-slate-500">{member.plateNumber}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className={cn(
-                      'text-lg font-bold',
-                      member.remainingWashes === 0 ? 'text-rose-600' : 'text-amber-600'
-                    )}>
-                      {member.remainingWashes}
-                      <span className="text-xs font-normal ml-1">次</span>
-                    </p>
-                  </div>
+          {rechargeRecords.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-purple-600" />
+                  <h3 className="font-bold text-slate-800">充值明细（充卡页）</h3>
                 </div>
-              ))}
+                <span className="text-sm text-slate-500">共 {rechargeRecords.length} 条记录</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">时间</th>
+                      <th className="px-5 py-3 text-left font-semibold text-slate-600">会员</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">充值金额</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">到账次数</th>
+                      <th className="px-5 py-3 text-right font-semibold text-slate-600">赠送次数</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rechargeRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
+                          {new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-5 py-3.5 font-semibold text-slate-800">{r.memberName}</td>
+                        <td className="px-5 py-3.5 text-right font-bold text-purple-600">{formatCNY(r.amount)}</td>
+                        <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">+{r.washesAdded}</td>
+                        <td className="px-5 py-3.5 text-right font-semibold text-amber-600">+{r.bonusWashes}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
+
+          <div className="mt-10 pt-6 border-t border-dashed border-slate-200 flex items-center justify-between text-sm text-slate-500">
+            <div className="flex items-center gap-8">
+              <div>
+                <p className="mb-2">收银员签字：</p>
+                <p className="w-32 h-8 border-b border-slate-300"></p>
+              </div>
+              <div>
+                <p className="mb-2">店主签字：</p>
+                <p className="w-32 h-8 border-b border-slate-300"></p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p>洗车店营业管理系统</p>
+              <p className="text-xs mt-1">本单一式两份，店铺留底</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
-            <Calendar className="w-5 h-5 text-sky-600" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">每日明细</h2>
-            <p className="text-sm text-slate-500 mt-0.5">最近 {dateRange} 天数据</p>
-          </div>
-        </div>
-
-        {statsData.every(d => d.totalWashes === 0 && d.memberRecharge === 0) ? (
-          <EmptyState title="暂无明细数据" />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-600">日期</th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold text-slate-600">总洗车</th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold text-slate-600">会员</th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold text-slate-600">散客</th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-600">现金收入</th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-600">会员充值</th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold text-slate-600">合计收入</th>
-                </tr>
-              </thead>
-              <tbody>
-                {statsData.map(day => (
-                  <tr
-                    key={day.date}
-                    className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
-                  >
-                    <td className="py-3 px-4">
-                      <span className="font-medium text-slate-700">{day.date}</span>
-                    </td>
-                    <td className="text-center py-3 px-4">
-                      <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-lg bg-sky-100 text-sky-700 font-bold">
-                        {day.totalWashes}
-                      </span>
-                    </td>
-                    <td className="text-center py-3 px-4">
-                      <span className="text-amber-600 font-medium">{day.memberWashes}</span>
-                    </td>
-                    <td className="text-center py-3 px-4">
-                      <span className="text-slate-600 font-medium">{day.cashWashes}</span>
-                    </td>
-                    <td className="text-right py-3 px-4">
-                      <span className="text-emerald-600 font-semibold">¥{day.cashIncome}</span>
-                    </td>
-                    <td className="text-right py-3 px-4">
-                      <span className="text-violet-600 font-semibold">¥{day.memberRecharge}</span>
-                    </td>
-                    <td className="text-right py-3 px-4">
-                      <span className="text-slate-800 font-bold">
-                        ¥{day.cashIncome + day.memberRecharge}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-slate-50 font-semibold">
-                  <td className="py-4 px-4 text-slate-800">合计</td>
-                  <td className="text-center py-4 px-4">
-                    <span className="inline-flex items-center justify-center min-w-[2rem] px-3 py-1 rounded-lg bg-sky-500 text-white font-bold">
-                      {totalStats.totalWashes}
-                    </span>
-                  </td>
-                  <td className="text-center py-4 px-4 text-amber-600">{totalStats.memberWashes}</td>
-                  <td className="text-center py-4 px-4 text-slate-600">{totalStats.cashWashes}</td>
-                  <td className="text-right py-4 px-4 text-emerald-600">¥{totalStats.cashIncome}</td>
-                  <td className="text-right py-4 px-4 text-violet-600">¥{totalStats.memberRecharge}</td>
-                  <td className="text-right py-4 px-4 text-slate-800 text-lg">
-                    ¥{totalStats.cashIncome + totalStats.memberRecharge}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #print-area, #print-area * { visibility: visible; }
+          #print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+          .print\:hidden { display: none !important; }
+          @page { margin: 1cm; }
+        }
+      `}</style>
     </div>
   );
-};
-
-const MemberRankingItem: React.FC<{ member: Member; rank: number }> = ({ member, rank }) => {
-  const colors = [
-    'from-amber-400 to-yellow-500',
-    'from-slate-300 to-slate-400',
-    'from-orange-300 to-orange-400'
-  ];
-  const isTop3 = rank <= 3;
-  const maxWashes = 100;
-
-  return (
-    <div className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors">
-      <div
-        className={cn(
-          'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-          isTop3
-            ? `bg-gradient-to-br ${colors[rank - 1]} text-white shadow-md`
-            : 'bg-slate-100 text-slate-500'
-        )}
-      >
-        {rank}
-      </div>
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center text-white font-bold flex-shrink-0">
-        {member.ownerName.charAt(0)}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <p className="font-semibold text-slate-800 text-sm truncate">{member.ownerName}</p>
-          <p className="text-sm font-bold text-slate-800 ml-2 flex-shrink-0">{member.totalWashes} 次</p>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-sky-400 to-blue-500 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min((member.totalWashes / maxWashes) * 100, 100)}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default StatisticsPage;
+}

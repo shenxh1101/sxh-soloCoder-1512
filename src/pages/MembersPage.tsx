@@ -16,7 +16,11 @@ import {
   Trash2,
   Gift,
   CircleDollarSign,
-  Sparkles
+  Sparkles,
+  Receipt,
+  Banknote,
+  CreditCard,
+  Wallet
 } from 'lucide-react';
 import { Modal } from '@/components/Modal';
 import { Button } from '@/components/Button';
@@ -24,8 +28,9 @@ import { SearchBar } from '@/components/SearchBar';
 import { EmptyState } from '@/components/EmptyState';
 import { useMemberStore } from '@/store/memberStore';
 import { useConfigStore } from '@/store/configStore';
+import { useQueueStore } from '@/store/queueStore';
 import { cn } from '@/lib/utils';
-import type { Member } from '@/types';
+import type { Member, WashRecord } from '@/types';
 
 type FilterType = 'all' | 'low' | 'active';
 
@@ -38,6 +43,7 @@ const MembersPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [detailTab, setDetailTab] = useState<'recharge' | 'wash'>('recharge');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [newMember, setNewMember] = useState({ plateNumber: '', ownerName: '', phone: '' });
@@ -54,6 +60,8 @@ const MembersPage: React.FC = () => {
   const getRechargeHistory = useMemberStore(s => s.getRechargeHistory);
   const searchMembers = useMemberStore(s => s.searchMembers);
   const getLowWashMembers = useMemberStore(s => s.getLowWashMembers);
+
+  const getWashRecordsByMember = useQueueStore(s => s.getWashRecordsByMember);
 
   const rechargeRules = useConfigStore(s => s.rechargeRules);
   const getBonusWashesByAmount = useConfigStore(s => s.getBonusWashesByAmount);
@@ -197,6 +205,7 @@ const MembersPage: React.FC = () => {
 
   const openDetailModal = (member: Member) => {
     setSelectedMember(member);
+    setDetailTab('recharge');
     setIsDetailModalOpen(true);
   };
 
@@ -725,44 +734,166 @@ const MembersPage: React.FC = () => {
             </div>
 
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <History className="w-5 h-5 text-slate-500" />
-                <h4 className="font-semibold text-slate-800">充值记录</h4>
+              <div className="flex gap-2 mb-4 p-1 rounded-xl bg-slate-100">
+                <button
+                  onClick={() => setDetailTab('recharge')}
+                  className={cn(
+                    'flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2',
+                    detailTab === 'recharge'
+                      ? 'bg-white shadow-sm text-sky-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  )}
+                >
+                  <History className="w-4 h-4" />
+                  充值记录
+                </button>
+                <button
+                  onClick={() => setDetailTab('wash')}
+                  className={cn(
+                    'flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2',
+                    detailTab === 'wash'
+                      ? 'bg-white shadow-sm text-sky-600'
+                      : 'text-slate-500 hover:text-slate-700'
+                  )}
+                >
+                  <Receipt className="w-4 h-4" />
+                  消费流水
+                </button>
               </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {getRechargeHistory(selectedMember.id).length === 0 ? (
-                  <div className="py-8 text-center">
-                    <p className="text-slate-400 text-sm">暂无充值记录</p>
-                  </div>
-                ) : (
-                  getRechargeHistory(selectedMember.id).map(record => (
-                    <div
-                      key={record.id}
-                      className="flex items-center justify-between p-4 rounded-xl bg-white border border-slate-100 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
-                          <TrendingUp className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-800">
-                            {record.washesAdded + record.bonusWashes} 次
-                            {record.bonusWashes > 0 && (
-                              <span className="text-xs font-normal text-amber-600 ml-2">(赠{record.bonusWashes}次)</span>
-                            )}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {new Date(record.createdAt).toLocaleString('zh-CN')}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-lg font-bold text-emerald-600">
-                        ¥{record.amount}
-                      </span>
+
+              {detailTab === 'recharge' && (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {getRechargeHistory(selectedMember.id).length === 0 ? (
+                    <div className="py-12 text-center">
+                      <p className="text-slate-400 text-sm">暂无充值记录</p>
                     </div>
-                  ))
-                )}
-              </div>
+                  ) : (
+                    getRechargeHistory(selectedMember.id).map(record => (
+                      <div
+                        key={record.id}
+                        className="flex items-center justify-between p-4 rounded-xl bg-white border border-slate-100 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-slate-800">
+                              {record.washesAdded + record.bonusWashes} 次
+                              {record.bonusWashes > 0 && (
+                                <span className="text-xs font-normal text-amber-600 ml-2">(赠{record.bonusWashes}次)</span>
+                              )}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(record.createdAt).toLocaleString('zh-CN')}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-lg font-bold text-emerald-600">
+                          ¥{record.amount}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'wash' && (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {(() => {
+                    const washRecords = getWashRecordsByMember(selectedMember.id);
+                    if (washRecords.length === 0) {
+                      return (
+                        <div className="py-12 text-center">
+                          <p className="text-slate-400 text-sm">暂无消费流水</p>
+                        </div>
+                      );
+                    }
+                    return washRecords.map((record: WashRecord) => {
+                      let paymentIcon = <Banknote className="w-5 h-5 text-white" />;
+                      let paymentColor = 'from-sky-400 to-blue-500';
+                      let paymentLabel = '现金';
+                      let amountClass = 'text-sky-600';
+
+                      switch (record.paymentType) {
+                        case 'member_deduct':
+                          paymentIcon = <CreditCard className="w-5 h-5 text-white" />;
+                          paymentColor = 'from-emerald-400 to-teal-500';
+                          paymentLabel = '卡扣次数';
+                          amountClass = 'text-emerald-600';
+                          break;
+                        case 'member_cash':
+                          paymentIcon = <Banknote className="w-5 h-5 text-white" />;
+                          paymentColor = 'from-sky-400 to-blue-500';
+                          paymentLabel = '现金支付';
+                          amountClass = 'text-sky-600';
+                          break;
+                        case 'member_recharge_deduct':
+                          paymentIcon = <Wallet className="w-5 h-5 text-white" />;
+                          paymentColor = 'from-purple-400 to-indigo-500';
+                          paymentLabel = '充值后扣次';
+                          amountClass = 'text-purple-600';
+                          break;
+                        default:
+                          break;
+                      }
+
+                      return (
+                        <div
+                          key={record.id}
+                          className="p-4 rounded-xl bg-white border border-slate-100 hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                'w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br',
+                                paymentColor
+                              )}>
+                                {paymentIcon}
+                              </div>
+                              <div>
+                                <p className="font-semibold text-slate-800 flex items-center gap-2">
+                                  {record.plateNumber}
+                                  <span className="text-xs font-normal text-slate-500">{paymentLabel}</span>
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {new Date(record.createdAt).toLocaleString('zh-CN')}
+                                </p>
+                              </div>
+                            </div>
+                            <span className={cn('text-lg font-bold', amountClass)}>
+                              {record.paymentType === 'member_deduct'
+                                ? '扣1次'
+                                : `¥${record.amount}`}
+                            </span>
+                          </div>
+                          {record.note && (
+                            <div className="mt-2 pt-2 border-t border-slate-100">
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                {record.washesUsed > 0 && (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                    扣次：{record.washesUsed}次
+                                  </span>
+                                )}
+                                {record.bonusWashesAdded > 0 && (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                                    赠送：{record.bonusWashesAdded}次
+                                  </span>
+                                )}
+                                {record.rechargeAmount > 0 && (
+                                  <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
+                                    充值：¥{record.rechargeAmount}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         )}

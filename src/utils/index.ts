@@ -6,6 +6,11 @@ export const formatDate = (date: Date): string => {
   return date.toISOString().split('T')[0];
 };
 
+export const formatTime = (isoString: string): string => {
+  const d = new Date(isoString);
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+};
+
 export const formatDateTime = (date: Date): string => {
   return date.toLocaleString('zh-CN', {
     year: 'numeric',

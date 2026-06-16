@@ -12,7 +12,8 @@ import {
   Database,
   Download,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Car
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Modal } from '@/components/Modal';
@@ -316,6 +317,55 @@ const SettingsPage: React.FC = () => {
             <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 font-medium">分钟</span>
           </div>
           <p className="text-xs text-slate-500 mt-3">用于计算客户等待时间估算</p>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center shadow-md shadow-purple-500/25">
+              <Car className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">洗车工位数量</h2>
+              <p className="text-sm text-slate-500 mt-0.5">店内可同时洗车的工位</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 mb-2">
+            <button
+              onClick={() => {
+                const val = Math.max(1, systemConfig.washStationCount - 1);
+                updateSystemConfig({ washStationCount: val });
+              }}
+              className="w-14 h-14 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-2xl font-bold text-slate-600 transition-colors"
+            >
+              −
+            </button>
+            <div className="flex-1 text-center">
+              <span className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                {systemConfig.washStationCount}
+              </span>
+              <p className="text-sm text-slate-500 mt-1">个工位</p>
+            </div>
+            <button
+              onClick={() => {
+                const val = Math.min(10, systemConfig.washStationCount + 1);
+                updateSystemConfig({ washStationCount: val });
+              }}
+              className="w-14 h-14 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-2xl font-bold text-slate-600 transition-colors"
+            >
+              +
+            </button>
+          </div>
+          <div className="flex justify-center gap-2 mt-4">
+            {Array.from({ length: systemConfig.washStationCount }, (_, i) => (
+              <div
+                key={i}
+                className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-sm font-bold shadow-md"
+              >
+                {i + 1}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 mt-4 text-center">设置后，可同时开始对应数量的车辆</p>
         </div>
 
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
