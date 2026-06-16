@@ -35,7 +35,7 @@ import { useQueueStore } from '@/store/queueStore';
 import { cn } from '@/lib/utils';
 import type { Member, WashRecord } from '@/types';
 
-type FilterType = 'all' | 'low' | 'active';
+type FilterType = 'all' | 'low' | 'active' | 'inactive';
 
 const MembersPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,7 +45,7 @@ const MembersPage: React.FC = () => {
   const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'recharge' | 'wash' | 'vehicles'>('recharge');
   const [washPlateFilter, setWashPlateFilter] = useState<string>('all');
   const [newVehiclePlate, setNewVehiclePlate] = useState<string>('');
@@ -65,6 +65,7 @@ const MembersPage: React.FC = () => {
   const getRechargeHistory = useMemberStore(s => s.getRechargeHistory);
   const searchMembers = useMemberStore(s => s.searchMembers);
   const getLowWashMembers = useMemberStore(s => s.getLowWashMembers);
+  const getInactiveMembers = useMemberStore(s => s.getInactiveMembers);
   const addVehicle = useMemberStore(s => s.addVehicle);
   const removeVehicle = useMemberStore(s => s.removeVehicle);
 
@@ -105,13 +106,20 @@ const MembersPage: React.FC = () => {
         .sort((a, b) =>
           new Date(b.lastVisitAt!).getTime() - new Date(a.lastVisitAt!).getTime()
         );
+    } else if (filter === 'inactive') {
+      result = getInactiveMembers(30);
     }
 
     return result.sort((a, b) => {
       if (filter === 'low') return a.remainingWashes - b.remainingWashes;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [members, searchKeyword, filter, searchMembers, getLowWashMembers]);
+  }, [members, searchKeyword, filter, searchMembers, getLowWashMembers, getInactiveMembers]);
+
+  const selectedMember = useMemo(() => {
+    if (!selectedMemberId) return null;
+    return members.find(m => m.id === selectedMemberId) || null;
+  }, [selectedMemberId, members]);
 
   const handleAddMember = () => {
     if (!newMember.plateNumber.trim() || !newMember.ownerName.trim()) {
@@ -140,21 +148,15 @@ const MembersPage: React.FC = () => {
     });
     showToast('会员信息已更新', 'success');
     setIsEditModalOpen(false);
-    setSelectedMember(prev => prev ? {
-      ...prev,
-      plateNumber: editMember.plateNumber.toUpperCase().replace(/\s/g, ''),
-      ownerName: editMember.ownerName,
-      phone: editMember.phone || undefined
-    } : null);
   };
 
   const handleDeleteMember = (member: Member) => {
     if (confirm(`确定要删除会员 ${member.ownerName} (${member.plateNumber}) 吗？此操作不可恢复。`)) {
       deleteMember(member.id);
       showToast('会员已删除', 'info');
-      if (selectedMember?.id === member.id) {
+      if (selectedMemberId === member.id) {
         setIsDetailModalOpen(false);
-        setSelectedMember(null);
+        setSelectedMemberId(null);
       }
     }
   };
@@ -183,16 +185,13 @@ const MembersPage: React.FC = () => {
       setRechargeAmount(0);
       setRechargeWashes(0);
       setUseCustomWashes(false);
-
-      const updatedMember = members.find(m => m.id === selectedMember.id);
-      if (updatedMember) setSelectedMember(updatedMember);
     } else {
       showToast(result.message, 'error');
     }
   };
 
   const openRechargeModal = (member: Member) => {
-    setSelectedMember(member);
+    setSelectedMemberId(member.id);
     const defaultRule = rechargeRules.find(r => r.isDefault) || rechargeRules[0];
     if (defaultRule) {
       setRechargeAmount(defaultRule.amount);
@@ -201,7 +200,7 @@ const MembersPage: React.FC = () => {
   };
 
   const openEditModal = (member: Member) => {
-    setSelectedMember(member);
+    setSelectedMemberId(member.id);
     setEditMember({
       plateNumber: member.plateNumber,
       ownerName: member.ownerName,
@@ -211,7 +210,7 @@ const MembersPage: React.FC = () => {
   };
 
   const openDetailModal = (member: Member) => {
-    setSelectedMember(member);
+    setSelectedMemberId(member.id);
     setDetailTab('recharge');
     setWashPlateFilter('all');
     setNewVehiclePlate('');
@@ -360,7 +359,8 @@ const MembersPage: React.FC = () => {
             {([
               { key: 'all', label: '全部' },
               { key: 'low', label: '次数不足' },
-              { key: 'active', label: '活跃会员' }
+              { key: 'active', label: '活跃会员' },
+              { key: 'inactive', label: '久未到店' }
             ] as const).map(item => (
               <button
                 key={item.key}
@@ -676,69 +676,115 @@ const MembersPage: React.FC = () => {
         isOpen={isDetailModalOpen}
         onClose={() => {
           setIsDetailModalOpen(false);
-          setSelectedMember(null);
+          setSelectedMemberId(null);
         }}
         title="会员详情"
         size="lg"
       >
         {selectedMember && (
           <div className="space-y-6">
-            <div className="flex items-start gap-5 p-5 rounded-2xl bg-gradient-to-br from-slate-50 via-sky-50/30 to-blue-50 border border-slate-100">
-              <div className="relative">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-xl shadow-sky-500/25">
-                  {selectedMember.ownerName.charAt(0)}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 via-sky-50/30 to-blue-50 border border-slate-100">
+              <div className="flex items-start gap-5 mb-5">
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-xl shadow-sky-500/25">
+                    {selectedMember.ownerName.charAt(0)}
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                    <Crown className="w-4.5 h-4.5 text-white" />
+                  </div>
                 </div>
-                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
-                  <Crown className="w-4.5 h-4.5 text-white" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h3 className="text-2xl font-bold text-slate-800">{selectedMember.ownerName}</h3>
+                    {selectedMember.plateNumbers.length > 1 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-100 text-sky-700 text-xs font-semibold border border-sky-200">
+                        <Car className="w-3.5 h-3.5" />
+                        家庭账户 · {selectedMember.plateNumbers.length} 辆车
+                      </span>
+                    )}
+                  </div>
+                  {selectedMember.phone && (
+                    <p className="text-slate-600 mt-1.5 flex items-center gap-2">
+                      <Phone className="w-4 h-4" />
+                      {selectedMember.phone}
+                    </p>
+                  )}
+                  {selectedMember.lastVisitAt && (
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      最近到店：{new Date(selectedMember.lastVisitAt).toLocaleDateString('zh-CN')}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" icon={Edit3} onClick={() => openEditModal(selectedMember)}>
+                    编辑
+                  </Button>
+                  <Button variant="primary" size="sm" icon={PlusCircle} onClick={() => openRechargeModal(selectedMember)}>
+                    充卡
+                  </Button>
+                  <button
+                    onClick={() => handleDeleteMember(selectedMember)}
+                    className="p-2.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                    title="删除会员"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex-1">
-                <h3 className="text-2xl font-bold text-slate-800">{selectedMember.ownerName}</h3>
-                <p className="text-xl font-bold tracking-widest text-sky-600 mt-1">{selectedMember.plateNumber}</p>
-                {selectedMember.phone && (
-                  <p className="text-slate-600 mt-2 flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    {selectedMember.phone}
+
+              <div className="grid grid-cols-3 gap-4 mb-5">
+                <div className="p-4 rounded-xl bg-white/80 border border-sky-100">
+                  <p className="text-xs text-slate-500 mb-1">剩余次数</p>
+                  <p className={cn(
+                    'text-2xl font-bold',
+                    selectedMember.remainingWashes <= lowThreshold ? 'text-amber-600' : 'text-emerald-600'
+                  )}>
+                    {selectedMember.remainingWashes}<span className="text-sm font-normal ml-1">次</span>
                   </p>
-                )}
-                <div className="flex gap-5 mt-4">
-                  <div>
-                    <p className="text-xs text-slate-500">剩余次数</p>
-                    <p className={cn(
-                      'text-2xl font-bold',
-                      selectedMember.remainingWashes <= lowThreshold ? 'text-amber-600' : 'text-emerald-600'
-                    )}>
-                      {selectedMember.remainingWashes}<span className="text-sm font-normal ml-1">次</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">累计洗车</p>
-                    <p className="text-2xl font-bold text-sky-600">
-                      {selectedMember.totalWashes}<span className="text-sm font-normal ml-1">次</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">注册时间</p>
-                    <p className="text-sm font-medium text-slate-700">
-                      {new Date(selectedMember.createdAt).toLocaleDateString('zh-CN')}
-                    </p>
-                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-white/80 border border-sky-100">
+                  <p className="text-xs text-slate-500 mb-1">累计洗车</p>
+                  <p className="text-2xl font-bold text-sky-600">
+                    {selectedMember.totalWashes}<span className="text-sm font-normal ml-1">次</span>
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/80 border border-sky-100">
+                  <p className="text-xs text-slate-500 mb-1">注册时间</p>
+                  <p className="text-sm font-medium text-slate-700 mt-2">
+                    {new Date(selectedMember.createdAt).toLocaleDateString('zh-CN')}
+                  </p>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" icon={Edit3} onClick={() => openEditModal(selectedMember)}>
-                  编辑
-                </Button>
-                <Button variant="primary" size="sm" icon={PlusCircle} onClick={() => openRechargeModal(selectedMember)}>
-                  充卡
-                </Button>
-                <button
-                  onClick={() => handleDeleteMember(selectedMember)}
-                  className="p-2.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
-                  title="删除会员"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+
+              <div>
+                <p className="text-xs font-medium text-slate-500 mb-2.5">绑定车辆</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedMember.plateNumbers.map((v) => {
+                    const isMain = v.plateNumber === selectedMember.plateNumber;
+                    return (
+                      <div
+                        key={v.id}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
+                          isMain
+                            ? 'bg-gradient-to-r from-sky-50 to-blue-50 border-sky-200'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold ${
+                          isMain
+                            ? 'bg-gradient-to-br from-sky-400 to-blue-500'
+                            : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                        }`}>
+                          {v.plateNumber.slice(-2)}
+                        </div>
+                        <span className="text-sm font-semibold tracking-wider text-slate-700">{v.plateNumber}</span>
+                        {isMain && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-600 font-medium">主</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 

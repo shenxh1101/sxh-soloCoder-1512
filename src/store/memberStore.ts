@@ -18,6 +18,7 @@ interface MemberState {
   getRechargeHistory: (memberId: string) => RechargeRecord[];
   searchMembers: (keyword: string) => Member[];
   getLowWashMembers: () => Member[];
+  getInactiveMembers: (days: number) => Member[];
 }
 
 const migrateMembers = (members: any[]): Member[] => {
@@ -233,5 +234,20 @@ export const useMemberStore = create<MemberState>((set, get) => ({
   getLowWashMembers: () => {
     const threshold = useConfigStore.getState().systemConfig.lowWashThreshold;
     return get().members.filter(m => m.remainingWashes <= threshold);
+  },
+
+  getInactiveMembers: (days) => {
+    const now = new Date().getTime();
+    const thresholdMs = days * 24 * 60 * 60 * 1000;
+    return get().members
+      .filter(m => {
+        const lastVisit = m.lastVisitAt ? new Date(m.lastVisitAt).getTime() : new Date(m.createdAt).getTime();
+        return now - lastVisit >= thresholdMs;
+      })
+      .sort((a, b) => {
+        const aTime = a.lastVisitAt ? new Date(a.lastVisitAt).getTime() : new Date(a.createdAt).getTime();
+        const bTime = b.lastVisitAt ? new Date(b.lastVisitAt).getTime() : new Date(b.createdAt).getTime();
+        return aTime - bTime;
+      });
   }
 }));

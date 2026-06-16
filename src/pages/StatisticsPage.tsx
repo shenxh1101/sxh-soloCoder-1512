@@ -137,8 +137,9 @@ export default function StatisticsPage() {
     lines.push(`赠送洗车次数,${stats.totalBonusWashes}`);
     lines.push('');
     lines.push('【收入明细】');
-    lines.push(`散客现金收入,¥${stats.cashIncome.toFixed(2)}`);
+    lines.push(`散客现金收入,¥${stats.guestCashOnly.toFixed(2)}`);
     lines.push(`会员现金支付,¥${stats.memberCashOnly.toFixed(2)}`);
+    lines.push(`现金收入小计,¥${stats.cashIncome.toFixed(2)}`);
     lines.push(`充值收入（结算时）,¥${stats.rechargeIncomeFromSettlement.toFixed(2)}`);
     lines.push(`充值收入（充卡页）,¥${stats.rechargeIncomeFromPage.toFixed(2)}`);
     lines.push(`充值收入合计,¥${stats.totalRechargeIncome.toFixed(2)}`);
@@ -171,10 +172,11 @@ export default function StatisticsPage() {
     });
     lines.push('');
     lines.push('【充值明细】');
-    lines.push('时间,会员,充值金额,到账次数,赠送次数');
+    lines.push('时间,会员,充值金额,到账次数,赠送次数,来源');
     rechargeRecords.forEach(r => {
       const time = new Date(r.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-      lines.push(`${time},${r.memberName},¥${r.amount},${r.washesAdded},${r.bonusWashes}`);
+      const sourceLabel = r.source === 'settlement' ? '结算时充值' : r.source === 'recharge_page' ? '充卡页充值' : '充卡页充值';
+      lines.push(`${time},${r.memberName},¥${r.amount},${r.washesAdded},${r.bonusWashes},${sourceLabel}`);
     });
     lines.push('');
     lines.push(`导出时间：${new Date().toLocaleString('zh-CN')}`);

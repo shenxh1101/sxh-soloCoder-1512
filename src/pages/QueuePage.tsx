@@ -68,6 +68,7 @@ export default function QueuePage() {
 
   const stationCount = config.washStationCount;
   const washDurationMs = config.washDurationMinutes * 60 * 1000;
+  const availableStations = stationCount - washingQueue.length;
 
   const today = formatDate(new Date());
   const todayAppointments = appointmentStore.getTodayAppointments().filter(a => a.status !== 'completed');
@@ -500,8 +501,7 @@ export default function QueuePage() {
               const member = item.isVip && item.memberId
                 ? memberStore.members.find(m => m.id === item.memberId)
                 : null;
-              const isFirst = info.position === 1;
-              const canStart = isFirst && canStartNew;
+              const canStart = info.position > 0 && info.position <= availableStations;
               const progressPercent = Math.round((1 - idx / waitingQueue.length) * 100);
 
               return (
@@ -532,6 +532,12 @@ export default function QueuePage() {
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white text-xs font-bold shadow-sm">
                               <Crown className="w-3 h-3" />
                               VIP
+                            </span>
+                          )}
+                          {item.fromAppointment && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 text-white text-xs font-bold shadow-sm">
+                              <CalendarDays className="w-3 h-3" />
+                              预约
                             </span>
                           )}
                           {canStart && (

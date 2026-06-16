@@ -4,6 +4,7 @@ import type { WashPaymentType } from '@/types';
 import { getFromStorage, setToStorage, generateId, normalizePlateNumber, formatDate } from '@/utils';
 import { useMemberStore } from './memberStore';
 import { useConfigStore } from './configStore';
+import { useAppointmentStore } from './appointmentStore';
 
 interface CompleteWashOptions {
   paymentType: WashPaymentType;
@@ -293,6 +294,12 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     set({ queue, washRecords });
     setToStorage('carwash_queue', queue);
     setToStorage('carwash_wash_records', washRecords);
+
+    if (item.fromAppointment && item.appointmentId) {
+      useAppointmentStore.getState().updateAppointment(item.appointmentId, {
+        status: 'completed'
+      });
+    }
 
     return {
       success: true,

@@ -10,15 +10,20 @@ import {
   ListPlus,
   Crown,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  CalendarDays,
+  Clock3,
+  UserX
 } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 import { Button } from '@/components/Button';
 import { useQueueStore } from '@/store/queueStore';
 import { useMemberStore } from '@/store/memberStore';
 import { useConfigStore } from '@/store/configStore';
+import { useAppointmentStore } from '@/store/appointmentStore';
 import { EmptyState } from '@/components/EmptyState';
 import { cn } from '@/lib/utils';
+import { formatDate, formatTime } from '@/utils';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -27,7 +32,9 @@ const Dashboard: React.FC = () => {
   const getWashingQueue = useQueueStore(s => s.getWashingQueue);
   const members = useMemberStore(s => s.members);
   const getLowWashMembers = useMemberStore(s => s.getLowWashMembers);
+  const getInactiveMembers = useMemberStore(s => s.getInactiveMembers);
   const getRechargeHistory = useMemberStore(s => s.getRechargeHistory);
+  const getTodayAppointments = useAppointmentStore(s => s.getTodayAppointments);
   const washDuration = useConfigStore(s => s.systemConfig.washDurationMinutes);
   const lowThreshold = useConfigStore(s => s.systemConfig.lowWashThreshold);
 
@@ -35,6 +42,8 @@ const Dashboard: React.FC = () => {
   const waitingQueue = getWaitingQueue();
   const washingQueue = getWashingQueue();
   const lowWashMembers = getLowWashMembers();
+  const inactiveMembers = getInactiveMembers(30);
+  const todayAppointments = getTodayAppointments().filter(a => a.status === 'pending');
 
   const totalWashes = todayRecords.filter(r => r.status === 'completed').length;
   const memberWashes = todayRecords.filter(r => r.type === 'member' && r.status === 'completed').length;
@@ -247,27 +256,33 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {lowWashMembers.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow cursor-pointer"
+               onClick={() => navigate('/members?filter=low')}>
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-amber-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-800">次数预警</h2>
+                  <h2 className="text-lg font-bold text-slate-800">次数不足</h2>
                   <p className="text-sm text-slate-500 mt-0.5">
-                    剩余次数 ≤ {lowThreshold} 次的会员
+                    剩余次数 ≤ {lowThreshold} 次
                   </p>
                 </div>
               </div>
+              <span className="text-2xl font-bold text-amber-600">{lowWashMembers.length}</span>
             </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {lowWashMembers.slice(0, 6).map(member => (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {lowWashMembers.slice(0, 4).map(member => (
                 <div
                   key={member.id}
                   className="flex items-center justify-between p-3 rounded-xl bg-amber-50/50 border border-amber-100 hover:bg-amber-50 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('/members');
+                  }}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center text-white text-sm font-bold">
@@ -289,17 +304,123 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               ))}
-              {lowWashMembers.length > 6 && (
-                <button
-                  onClick={() => navigate('/members?filter=low')}
-                  className="w-full py-2 text-sm text-amber-600 font-medium hover:bg-amber-50 rounded-lg transition-colors"
-                >
-                  查看全部 {lowWashMembers.length} 人
-                </button>
-              )}
             </div>
+            {lowWashMembers.length > 4 && (
+              <p className="text-center text-sm text-amber-600 font-medium mt-3">
+                查看全部 {lowWashMembers.length} 人 →
+              </p>
+            )}
           </div>
         )}
+
+        {inactiveMembers.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow cursor-pointer"
+               onClick={() => navigate('/members?filter=inactive')}>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center">
+                  <UserX className="w-5 h-5 text-sky-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">久未到店</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    超过 30 天没来
+                  </p>
+                </div>
+              </div>
+              <span className="text-2xl font-bold text-sky-600">{inactiveMembers.length}</span>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {inactiveMembers.slice(0, 4).map(member => {
+                const lastVisit = member.lastVisitAt || member.createdAt;
+                const days = Math.floor((Date.now() - new Date(lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+                return (
+                  <div
+                    key={member.id}
+                    className="flex items-center justify-between p-3 rounded-xl bg-sky-50/50 border border-sky-100 hover:bg-sky-50 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/members');
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center text-white text-sm font-bold">
+                        {member.ownerName.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-800 text-sm">{member.ownerName}</p>
+                        <p className="text-xs text-slate-500">{member.plateNumber}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-sky-600">{days} 天</p>
+                      <p className="text-xs text-slate-500">没来</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {inactiveMembers.length > 4 && (
+              <p className="text-center text-sm text-sky-600 font-medium mt-3">
+                查看全部 {inactiveMembers.length} 人 →
+              </p>
+            )}
+          </div>
+        )}
+
+        {todayAppointments.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow cursor-pointer"
+               onClick={() => navigate('/queue')}>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
+                  <CalendarDays className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">今日预约</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    待到店预约
+                  </p>
+                </div>
+              </div>
+              <span className="text-2xl font-bold text-purple-600">{todayAppointments.length}</span>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {todayAppointments.slice(0, 4).map(apt => (
+                <div
+                  key={apt.id}
+                  className="flex items-center justify-between p-3 rounded-xl bg-purple-50/50 border border-purple-100 hover:bg-purple-50 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('/queue');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold">
+                      {apt.plateNumber.slice(-4)}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-800 text-sm">{apt.plateNumber}</p>
+                      <p className="text-xs text-slate-500">
+                        <Clock3 className="w-3 h-3 inline mr-1" />
+                        {apt.appointmentTime}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-purple-600">待到店</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {todayAppointments.length > 4 && (
+              <p className="text-center text-sm text-purple-600 font-medium mt-3">
+                查看全部 {todayAppointments.length} 个 →
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <div className="flex items-center justify-between mb-6">
@@ -365,7 +486,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 };
